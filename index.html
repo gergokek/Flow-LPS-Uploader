@@ -2,15 +2,20 @@
 <html lang="hu"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; connect-src 'self' https://login.microsoftonline.com https://*.microsoftonline.com">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; connect-src 'self' https://login.microsoftonline.com https://*.microsoftonline.com https://graph.microsoft.com">
 <title>Flow LPS – SharePoint Uploader (teszt)</title>
 <link rel="stylesheet" href="./styles.css"><script type="module" src="./app.js"></script>
 </head><body><main><h1>Flow LPS – SharePoint Uploader</h1>
-<p class="notice"><strong>Előkészítő tesztoldal.</strong> A Microsoft-bejelentkezés kizárólag a felhasználó azonosítását teszteli. SharePoint-feltöltés nincs bekapcsolva.</p>
+<p class="notice"><strong>Előkészítő tesztoldal.</strong> A Microsoft-bejelentkezés működik; a SharePoint-kapcsolatot kizárólag olvasással teszteljük. SharePoint-feltöltés nincs bekapcsolva.</p>
 <section><h2>Microsoft-bejelentkezés (teszt)</h2>
 <button type="button" id="login" disabled>Bejelentkezés Microsoft-fiókkal</button>
 <output id="authResult" role="status" aria-live="polite">Bejelentkezés előkészítése...</output>
 <p class="hint">Csak a felhasználó alapazonosítóit jelenítjük meg; tokent nem írunk ki és nem küldünk a GitHubra. A bejelentkezéshez külön Entra Redirect URI szükséges.</p>
+</section>
+<section><h2>SharePoint-kapcsolat ellenőrzése (csak olvasás)</h2>
+<p class="hint">Cél: Hanoflow / Flow-LPS-Storage / Projects. A Graph-hozzáféréshez a szervezet által engedélyezett Sites.Selected delegált jogosultság és a konkrét site-ra kiosztott Read jog szükséges.</p>
+<button type="button" id="checkSharePoint" disabled>SharePoint-kapcsolat tesztelése</button>
+<output id="sharePointResult" role="status" aria-live="polite">A Microsoft-bejelentkezés után indítható. Fájlt nem módosítunk.</output>
 </section>
 <section><h2>Tervelőnézet helyi ellenőrzése</h2>
 <label for="file">Flow LPS JSON-fájl</label><input id="file" type="file" accept=".json,application/json">
