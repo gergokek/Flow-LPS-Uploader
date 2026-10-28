@@ -78,7 +78,7 @@ graphButton.addEventListener('click',async()=>{
   const drive=await read('?$select=id,name,webUrl,driveType');
   if(drive.id!==driveId)throw new Error('Nem a beállított SharePoint dokumentumtár válaszolt.');
   const projects=await read('/root:/Projects:/children?$select=id,name,folder&$top=200');
-  const folders=(projects.value||[]).filter(x=>x.folder&&/^\\d+$/.test(x.name)).map(x=>x.name);
+  const folders=(projects.value||[]).filter(x=>x.folder&&/^[0-9]+$/.test(x.name)).map(x=>x.name);
   graphResult.textContent='Kapcsolat sikeres (csak olvasás).\\nDokumentumtár: '+(drive.name||'Flow-LPS-Storage')+'\\nProjektek (board ID): '+(folders.join(', ')||'nincs elérhető projektmappa')+'\\nSharePoint-feltöltés: kikapcsolva.';
  }catch(err){
   graphResult.textContent='A SharePoint olvasási teszt nem sikerült: '+(err?.errorCode||err?.message||'ismeretlen hiba')+'. Az alkalmazás nem módosított fájlt.';
