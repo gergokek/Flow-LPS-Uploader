@@ -1,5 +1,5 @@
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
-const clientId='3a2cf53d-07a7-4e48-bb90-023d7e293e7a';
+const clientId='3a2cf530-d7a7-4e48-bb90-023d7e293e7a';
 const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
 const redirectUri=new URL('./redirect.html',window.location.href).href;
 const button=document.querySelector('#login');
