@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="hu"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><title>Microsoft bejelentkezés – visszatérés</title></head>
+<body><p>Bejelentkezés feldolgozása...</p>
+<script type="module">
+import { broadcastResponseToMainFrame } from '@azure/msal-browser/redirect-bridge';
+broadcastResponseToMainFrame().catch(() => { document.body.textContent='A bejelentkezés visszatérése sikertelen. Zárd be az ablakot, és próbáld újra.'; });
+</script>
+</body></html>
