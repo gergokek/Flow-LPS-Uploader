@@ -18,10 +18,14 @@ function showAccount(account){
  status.textContent='Sikeres Microsoft-bejelentkezés.\nNév: '+(account.name||'—')+'\nFiók: '+(account.username||'—')+'\nSharePoint-hozzáférés: még nincs engedélyezve.';
 }
 msal.initialize().then(()=>{
+ window.__flowAuthBooted=true;
  const account=msal.getAllAccounts()[0]||null;
  showAccount(account);
  button.disabled=false;
-}).catch(()=>{status.textContent='A Microsoft bejelentkezési modul nem inicializálható.';});
+}).catch(err=>{
+ window.__flowAuthBooted=true;
+ status.textContent='A Microsoft bejelentkezési modul nem inicializálható. Hibakód: '+String(err?.errorCode||err?.name||'unknown')+'.';
+});
 let loginPending=false;
 let retryPendingInteraction=false;
 button.addEventListener('click',async()=>{
