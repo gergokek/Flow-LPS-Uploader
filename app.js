@@ -17,16 +17,30 @@ msal.initialize().then(()=>{
  showAccount(account);
  button.disabled=false;
 }).catch(()=>{status.textContent='A Microsoft bejelentkezési modul nem inicializálható.';});
+let loginPending=false;
+let retryPendingInteraction=false;
 button.addEventListener('click',async()=>{
+ if(loginPending)return;
+ loginPending=true;
  button.disabled=true;
  status.textContent='Microsoft-bejelentkezési ablak megnyitása...';
  try{
-  const response=await msal.loginPopup({scopes:['openid','profile'],redirectUri,prompt:'select_account'});
+  const response=await msal.loginPopup({scopes:['openid','profile'],redirectUri,prompt:'select_account',overrideInteractionInProgress:retryPendingInteraction});
+  retryPendingInteraction=false;
+  button.textContent='Bejelentkezés Microsoft-fiókkal';
   showAccount(response.account);
  }catch(err){
   const code=typeof err?.errorCode==='string'?err.errorCode:'auth_error';
-  status.textContent='Sikertelen vagy megszakított bejelentkezés. Hibakód: '+code+'. Ha a redirect URI még nincs regisztrálva, vedd fel az Entra alkalmazásban: '+redirectUri;
- }finally{button.disabled=false;}
+  if(code==='interaction_in_progress'||code==='timed_out'){
+   retryPendingInteraction=true;
+   button.textContent='Bejelentkezés újrapróbálása';
+   status.textContent='Korábbi vagy megszakadt bejelentkezés maradt folyamatban ('+code+'). Zárd be a korábbi Microsoft-ablakot, majd kattints az újrapróbálásra. Csak ekkor töröljük a függőben maradt popup-folyamatot.';
+  }else{
+   retryPendingInteraction=false;
+   button.textContent='Bejelentkezés Microsoft-fiókkal';
+   status.textContent='Sikertelen vagy megszakított bejelentkezés. Hibakód: '+code+'. Ellenőrizd, hogy ez a Redirect URI SPA típussal regisztrált-e az Entra alkalmazásban: '+redirectUri;
+  }
+ }finally{loginPending=false;button.disabled=false;}
 });
 const file=document.querySelector('#file');
 const result=document.querySelector('#result');
