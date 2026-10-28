@@ -61,7 +61,7 @@ graphButton.addEventListener('click',async()=>{
   let tokenResponse;
   try{tokenResponse=await msal.acquireTokenSilent(request);}
   catch(err){
-   if(!['interaction_required','consent_required','login_required'].includes(err?.errorCode))
+   if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(err?.errorCode))
     throw err;
    tokenResponse=await msal.acquireTokenPopup(request);
   }
