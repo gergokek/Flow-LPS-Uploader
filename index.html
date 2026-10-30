@@ -6,7 +6,7 @@
 <title>Flow LPS – SharePoint Uploader (teszt)</title>
 <link rel="stylesheet" href="./styles.css"><script defer src="./boot-diagnostics.js"></script><script type="module" src="./app.js"></script>
 </head><body><main><h1>Flow LPS – SharePoint Uploader</h1>
-<p class="notice"><strong>Előkészítő tesztoldal.</strong> A Microsoft-bejelentkezés működik; a SharePoint-kapcsolatot kizárólag olvasással teszteljük. SharePoint-feltöltés nincs bekapcsolva.</p>
+<p class="notice"><strong>Előkészítő tesztoldal.</strong> A SharePoint kapcsolat olvasható; külön megerősítés után kizárólag TEST_ONLY JSON tölthető fel a projekt Upload-Tests mappájába. Nincs Monday-szinkronizáció.</p>
 <section><h2>Microsoft-bejelentkezés (teszt)</h2>
 <button type="button" id="login" disabled>Bejelentkezés Microsoft-fiókkal</button>
 <output id="authResult" role="status" aria-live="polite">Bejelentkezés előkészítése...</output>
@@ -20,5 +20,9 @@
 <section><h2>Tervelőnézet helyi ellenőrzése</h2>
 <label for="file">Flow LPS JSON-fájl</label><input id="file" type="file" accept=".json,application/json">
 <p class="hint">A fájlt kizárólag a böngésződ olvassa be. Nem kerül a GitHubra.</p>
-<output id="result" role="status" aria-live="polite">Válassz egy helyi, TEST_ONLY tervelőnézetet.</output></section>
+<output id="result" role="status" aria-live="polite">Válassz egy helyi, TEST_ONLY tervelőnézetet.</output>
+<h3>TEST_ONLY feltöltés és visszaolvasás</h3>
+<p class="hint">Csak sikeres helyi ellenőrzés és Microsoft-bejelentkezés után engedélyezett. A feltöltés külön megerősítést kér, új egyedi fájlt hoz létre a Projects/5105949528/Upload-Tests mappában, majd SHA-256 ellenőrzést végez.</p>
+<button type="button" id="uploadTest" disabled>TEST_ONLY JSON feltöltése és ellenőrzése</button>
+<output id="uploadResult" role="status" aria-live="polite">Nincs feltöltés indítva.</output></section>
 </main></body></html>
