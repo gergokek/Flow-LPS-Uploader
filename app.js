@@ -130,7 +130,7 @@ uploadButton.addEventListener('click',async()=>{
    if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(err?.errorCode))throw err;
    token=await msal.acquireTokenPopup(auth);
   }
-  const result=await uploadTestPreview({driveId,boardId:expectedBoard,data:validatedPreview,token:token.accessToken});
+  const result=await uploadTestPreview({driveId,boardId:expectedBoard,data:validatedPreview,token:token.accessToken,onProgress:message=>{uploadResult.textContent=message;}});
   uploadResult.textContent='Feltöltés és visszaolvasás sikeres.\nHely: Projects/'+expectedBoard+'/Upload-Tests\nFájl: '+result.filename+'\nMéret: '+result.bytes+' bájt\nSHA-256: '+result.sha256+'\nMonday-board: változatlan.';
  }catch(err){uploadResult.textContent='A TEST_ONLY feltöltés vagy ellenőrzés sikertelen: '+(err?.message||err?.errorCode||'ismeretlen hiba')+'\nHa a feltöltés megtörtént, az Upload-Tests mappában tesztfájl maradhat.';}
  finally{uploadBusy=false;uploadButton.disabled=!validatedPreview||!msal.getAllAccounts().length;}
