@@ -20,7 +20,7 @@ function showAccount(account){
  graphButton.disabled=!account;
  uploadButton.disabled=!account || !validatedPreview;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
- status.textContent='Sikeres Microsoft-bejelentkezés.\nNév: '+(account.name||'—')+'\nFiók: '+(account.username||'—')+'\nSharePoint-hozzáférés: még nincs engedélyezve.';
+ status.textContent='Sikeres Microsoft-bejelentkezés.\nNév: '+(account.name||'—')+'\nFiók: '+(account.username||'—')+'\nSharePoint-hozzáférés: a külön tesztgombbal ellenőrizhető.';
 }
 msal.initialize().then(()=>{
  window.__flowAuthBooted=true;
@@ -88,7 +88,7 @@ graphButton.addEventListener('click',async()=>{
   if(drive.id!==driveId)throw new Error('Nem a beállított SharePoint dokumentumtár válaszolt.');
   const projects=await read('/root:/Projects:/children?$select=id,name,folder&$top=200');
   const folders=(projects.value||[]).filter(x=>x.folder&&/^[0-9]+$/.test(x.name)).map(x=>x.name);
-  graphResult.textContent='Kapcsolat sikeres (csak olvasás).\\nDokumentumtár: '+(drive.name||'Flow-LPS-Storage')+'\\nProjektek (board ID): '+(folders.join(', ')||'nincs elérhető projektmappa')+'\\nSharePoint-feltöltés: kikapcsolva.';
+  graphResult.textContent='Kapcsolat sikeres (csak olvasás).\\nDokumentumtár: '+(drive.name||'Flow-LPS-Storage')+'\\nProjektek (board ID): '+(folders.join(', ')||'nincs elérhető projektmappa')+'\\nTEST_ONLY feltöltés: külön megerősítéssel indítható.';
  }catch(err){
   graphResult.textContent='A SharePoint olvasási teszt nem sikerült: '+(err?.errorCode||err?.message||'ismeretlen hiba')+'. Az alkalmazás nem módosított fájlt.';
  }finally{graphBusy=false;graphButton.disabled=!msal.getAllAccounts().length;}
