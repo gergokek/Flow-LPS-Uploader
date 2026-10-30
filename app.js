@@ -156,3 +156,28 @@ verifyButton.addEventListener('click',async()=>{
  }catch(e){verifyResult.textContent='Ellenőrzés sikertelen: '+(e?.message||e?.errorCode||'ismeretlen hiba');}
  finally{verifyButton.disabled=!msal.getAllAccounts().length;}
 });
+
+const downloadedFile=document.querySelector('#downloadedFile');
+const compareButton=document.querySelector('#compareFiles');
+const compareResult=document.querySelector('#compareResult');
+async function hexSha256(bytes){
+ const digest=await crypto.subtle.digest('SHA-256',bytes);
+ return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
+}
+compareButton.addEventListener('click',async()=>{
+ compareResult.textContent='Bájtok és SHA-256 ellenőrzése...';
+ try{
+  if(!validatedPreview)throw new Error('Előbb válaszd ki az eredeti TEST_ONLY tervelőnézetet.');
+  const chosen=downloadedFile.files?.[0];
+  if(!chosen)throw new Error('Válaszd ki a SharePointból letöltött JSON-fájlt.');
+  if(chosen.size>5_000_000)throw new Error('A fájl túl nagy.');
+  const filename=verifyFilename.value.trim();
+  if(chosen.name!==filename)throw new Error('A letöltött fájl neve nem egyezik a megadott SharePoint-fájlnévvel.');
+  const expected=new TextEncoder().encode(JSON.stringify(validatedPreview,null,2)+'\n');
+  const actual=new Uint8Array(await chosen.arrayBuffer());
+  const expectedHash=await hexSha256(expected);
+  const actualHash=await hexSha256(actual);
+  if(expectedHash!==actualHash || expected.length!==actual.length)throw new Error('A két fájl SHA-256 ellenőrzőösszege eltér. Eredeti méret: '+expected.length+', letöltött méret: '+actual.length+'.');
+  compareResult.textContent='TELJES TARTALMI EGYEZÉS IGAZOLVA.\nFájlnév: '+filename+'\nMéret: '+actual.length+' bájt\nSHA-256: '+actualHash+'\nA letöltött fájl és az eredeti terv byte-pontosan egyezik. Monday-board: változatlan.';
+ }catch(e){compareResult.textContent='Az ellenőrzés nem sikerült: '+(e?.message||'ismeretlen hiba');}
+});
