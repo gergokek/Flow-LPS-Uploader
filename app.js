@@ -1,5 +1,6 @@
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import { validatePlanPreview } from './plan-validator.js';
+import { uploadTestPreview } from './sharepoint-upload.js';
 const clientId='3a2cf530-d7a7-4e48-bb90-023d7e293e7a';
 const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
 const redirectUri=new URL('./redirect.html',window.location.href).href;
@@ -8,12 +9,16 @@ const status=document.querySelector('#authResult');
 const graphButton=document.querySelector('#checkSharePoint');
 const graphResult=document.querySelector('#sharePointResult');
 const driveId='b!YBiCN3mDjkCA0zlGakoS1F6FNi-WzO5Ip7eBTLppUVCRBefvaJ27TYm2xryC37MY';
+const uploadButton=document.querySelector('#uploadTest');
+const uploadResult=document.querySelector('#uploadResult');
+let validatedPreview=null;
 const msal=new PublicClientApplication({
  auth:{clientId,authority:'https://login.microsoftonline.com/'+tenantId,redirectUri,navigateToLoginRequestUrl:false},
  cache:{cacheLocation:BrowserCacheLocation.SessionStorage,storeAuthStateInCookie:false}
 });
 function showAccount(account){
  graphButton.disabled=!account;
+ uploadButton.disabled=!account || !validatedPreview;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
  status.textContent='Sikeres Microsoft-bejelentkezés.\nNév: '+(account.name||'—')+'\nFiók: '+(account.username||'—')+'\nSharePoint-hozzáférés: még nincs engedélyezve.';
 }
@@ -92,6 +97,9 @@ const file=document.querySelector('#file');
 const result=document.querySelector('#result');
 const expectedBoard='5105949528';
 file.addEventListener('change',async()=>{
+ validatedPreview=null;
+ uploadButton.disabled=true;
+ uploadResult.textContent='Nincs feltöltés indítva.';
  result.textContent='Ellenőrzés...';
  const chosen=file.files?.[0];
  if(!chosen){result.textContent='Nincs fájl kiválasztva.';return;}
@@ -99,6 +107,31 @@ file.addEventListener('change',async()=>{
  try{
   const obj=JSON.parse(await chosen.text());
   validatePlanPreview(obj, expectedBoard);
+  validatedPreview=obj;
+  uploadButton.disabled=!msal.getAllAccounts().length;
   result.textContent='Helyi ellenőrzés sikeres.\nBoard: '+obj.boardId+'\nFeladatok: '+obj.taskCount+'\nVáltozások: '+obj.changeCount+'\nStátusz: TEST_ONLY – nem jóváhagyott, nem feltöltött terv.';
  }catch(e){result.textContent='A fájl nem használható: '+(e instanceof SyntaxError?'érvénytelen JSON.':e.message);}
+});
+
+let uploadBusy=false;
+uploadButton.addEventListener('click',async()=>{
+ if(uploadBusy||!validatedPreview)return;
+ if(!msal.getAllAccounts().length){uploadResult.textContent='Jelentkezz be előbb.';return;}
+ if(!window.confirm('Valóban feltöltöd a TEST_ONLY JSON-t a SharePoint Projects/'+expectedBoard+'/Upload-Tests mappába? A Monday-board nem változik.'))return;
+ uploadBusy=true;
+ uploadButton.disabled=true;
+ uploadResult.textContent='TEST_ONLY JSON feltöltése és visszaellenőrzése...';
+ try{
+  const account=msal.getAllAccounts()[0];
+  const auth={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+  let token;
+  try { token=await msal.acquireTokenSilent(auth); }
+  catch(err){
+   if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(err?.errorCode))throw err;
+   token=await msal.acquireTokenPopup(auth);
+  }
+  const result=await uploadTestPreview({driveId,boardId:expectedBoard,data:validatedPreview,token:token.accessToken});
+  uploadResult.textContent='Feltöltés és visszaolvasás sikeres.\nHely: Projects/'+expectedBoard+'/Upload-Tests\nFájl: '+result.filename+'\nMéret: '+result.bytes+' bájt\nSHA-256: '+result.sha256+'\nMonday-board: változatlan.';
+ }catch(err){uploadResult.textContent='A TEST_ONLY feltöltés vagy ellenőrzés sikertelen: '+(err?.message||err?.errorCode||'ismeretlen hiba')+'\nHa a feltöltés megtörtént, az Upload-Tests mappában tesztfájl maradhat.';}
+ finally{uploadBusy=false;uploadButton.disabled=!validatedPreview||!msal.getAllAccounts().length;}
 });
