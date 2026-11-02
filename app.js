@@ -1,3 +1,4 @@
+import {validateEditedDraft} from './edited-draft-validator.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import { validatePlanPreview } from './plan-validator.js';
 import { uploadTestPreview } from './sharepoint-upload.js';
@@ -40,6 +41,7 @@ function showAccount(account){
  uploadButton.disabled=!account || !validatedPreview;
  verifyButton.disabled=!account;
  draftSaveButton.disabled=!account||!draftTransferText;
+ editedSave.disabled=!account||!editedDraftText;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
  status.textContent='Sikeres Microsoft-bejelentkezés.\nNév: '+(account.name||'—')+'\nFiók: '+(account.username||'—')+'\nSharePoint-hozzáférés: a külön tesztgombbal ellenőrizhető.';
 }
@@ -181,6 +183,44 @@ document.querySelector('#restoreDraftFile').addEventListener('change',async even
   preview.append(list);
   if(draft.taskCount>20)preview.append(document.createTextNode('Az elonezet az elso 20 feladatot mutatja.'));
  }catch(err){output.textContent='DRAFT visszatoltes sikertelen: '+(err?.message||'ismeretlen');}
+});
+let editedDraftText=null,editedDraftChecked=null,editedBusy=false;
+const editedFile=document.querySelector('#editedDraftFile');
+const editedSave=document.querySelector('#saveEditedDraft');
+const editedStatus=document.querySelector('#editedDraftStatus');
+const editedResult=document.querySelector('#editedDraftSaveResult');
+editedFile.addEventListener('change',async()=>{
+ editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;
+ editedResult.textContent='Nincs feltoltes.';
+ try{
+  const file=editedFile.files?.[0];
+  if(!file||file.size>5_000_000)throw new Error('Valassz 5 MB alatti DRAFT JSON fajlt.');
+  const text=await file.text();
+  const valid=await validateEditedDraft(text,projectBoard.value.trim());
+  editedDraftText=text;editedDraftChecked=valid;
+  editedStatus.textContent='Szerkesztett DRAFT ellenorizve: '+valid.boardId+', verzio '+valid.version+', '+valid.taskCount+' feladat, SHA-256 '+valid.sha256;
+  editedSave.disabled=!msal.getAllAccounts().length;
+ }catch(e){editedStatus.textContent='Ellenorzes sikertelen: '+e.message;}
+});
+editedSave.addEventListener('click',async()=>{
+ if(editedBusy||!editedDraftText||!editedDraftChecked)return;
+ const boardId=projectBoard.value.trim(),account=msal.getAllAccounts()[0];
+ if(!account){editedResult.textContent='Microsoft bejelentkezes szukseges.';return;}
+ const valid=await validateEditedDraft(editedDraftText,boardId);
+ if(valid.sha256!==editedDraftChecked.sha256)throw new Error('DRAFT megvaltozott.');
+ if(!window.confirm('DRAFT v'+valid.version+' uj, nem jovahagyott SharePoint fajlkent mentve. Nincs Monday-szinkron. Folytatod?'))return;
+ editedBusy=true;editedSave.disabled=true;editedResult.textContent='DRAFT v'+valid.version+' feltoltese...';
+ try{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+  const getAccessToken=async()=>{
+   try{return (await msal.acquireTokenSilent(request)).accessToken;}
+   catch(e){if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;return (await msal.acquireTokenPopup(request)).accessToken;}
+  };
+  const versionId='v'+valid.version+'-'+Date.now().toString(36)+'-'+crypto.randomUUID().slice(0,12);
+  const saved=await saveDraftTransfer({editedDraftText,boardId,driveId,getAccessToken,versionId});
+  editedResult.textContent='DRAFT v'+valid.version+' mentve: '+saved.path+'; '+saved.bytes+' byte; SHA-256: '+saved.sha256+'. Metaadat-ellenorzes kesz. Teljes tartalmi visszaolvasas kulon szukseges.';
+ }catch(e){editedResult.textContent='Mentes hibas: '+(e.message||e)+'. Ellenorizd a SharePoint mappat ujraprobalas elott.';}
+ finally{editedBusy=false;editedSave.disabled=!editedDraftText||!msal.getAllAccounts().length;}
 });
 let draftSaveBusy=false;
 draftSaveButton.addEventListener('click',async()=>{
