@@ -153,7 +153,7 @@ draftVerifyButton.addEventListener('click',async()=>{
  try{
   if(!draftTransferText)throw new Error('Valaszd ki az eredeti DRAFT atadasi fajlt.');
   const file=downloadedDraft.files?.[0];
-  if(!file||!/^draft-[A-Za-z0-9_-]{8,100}\\.json$/.test(file.name))throw new Error('Valaszd ki a SharePointbol letoltott draft-*.json fajlt.');
+  if(!file||!/^draft-[A-Za-z0-9_-]{8,100}\.json$/.test(file.name))throw new Error('Valaszd ki a SharePointbol letoltott draft-*.json fajlt.');
   if(file.size>5_000_000)throw new Error('A DRAFT fajl tul nagy.');
   const bytes=new Uint8Array(await file.arrayBuffer());
   const result=await verifyDownloadedDraft({transferText:draftTransferText,downloadedBytes:bytes,boardId:projectBoard.value.trim()});
