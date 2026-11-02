@@ -5,6 +5,7 @@ import { verifyExistingTest } from './verify-upload.js';
 import {createProjectStorage} from './project-storage.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
 import {saveDraftTransfer} from './draft-save.js';
+import {verifyDownloadedDraft} from './draft-content-verifier.js';
 const clientId='3a2cf530-d7a7-4e48-bb90-023d7e293e7a';
 const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
 const redirectUri=new URL('./redirect.html',window.location.href).href;
@@ -25,6 +26,9 @@ let validatedPreview=null;
 let draftTransferText=null;
 const draftSaveButton=document.querySelector('#saveDraft');
 const draftSaveResult=document.querySelector('#draftSaveResult');
+const draftVerifyButton=document.querySelector('#verifyDraftContent');
+const downloadedDraft=document.querySelector('#downloadedDraft');
+const draftContentResult=document.querySelector('#draftContentResult');
 const msal=new PublicClientApplication({
  auth:{clientId,authority:'https://login.microsoftonline.com/'+tenantId,redirectUri,navigateToLoginRequestUrl:false},
  cache:{cacheLocation:BrowserCacheLocation.SessionStorage,storeAuthStateInCookie:false}
@@ -139,9 +143,23 @@ document.querySelector('#draftTransferFile').addEventListener('change',async eve
   const boardId=document.querySelector('#projectBoardId').value.trim();
   const content=await selected.text();
   const draft=await validateDraftTransfer(content,{expectedBoardId:boardId});
-  draftTransferText=content;draftSaveButton.disabled=!msal.getAllAccounts().length;
+  draftTransferText=content;draftSaveButton.disabled=!msal.getAllAccounts().length;draftVerifyButton.disabled=!downloadedDraft.files?.length;
   output.textContent='DRAFT ellenorzes sikeres. Board: '+draft.boardId+'; feladatok: '+draft.taskCount+'; SHA-256: '+draft.sha256+'. Nem kerult SharePointra es nincs jovahagyva.';
  }catch(err){output.textContent='DRAFT ellenorzes sikertelen: '+(err?.message||'ismeretlen hiba');}
+});
+downloadedDraft.addEventListener('change',()=>{draftVerifyButton.disabled=!draftTransferText||!downloadedDraft.files?.length;draftContentResult.textContent='Nincs ellenorzes.';});
+draftVerifyButton.addEventListener('click',async()=>{
+ draftVerifyButton.disabled=true;
+ try{
+  if(!draftTransferText)throw new Error('Valaszd ki az eredeti DRAFT atadasi fajlt.');
+  const file=downloadedDraft.files?.[0];
+  if(!file||!/^draft-[A-Za-z0-9_-]{8,100}\\.json$/.test(file.name))throw new Error('Valaszd ki a SharePointbol letoltott draft-*.json fajlt.');
+  if(file.size>5_000_000)throw new Error('A DRAFT fajl tul nagy.');
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  const result=await verifyDownloadedDraft({transferText:draftTransferText,downloadedBytes:bytes,boardId:projectBoard.value.trim()});
+  draftContentResult.textContent='TELJES DRAFT TARTALMI EGYEZES. Board: '+result.boardId+'; feladatok: '+result.taskCount+'; meret: '+result.bytes+' byte; SHA-256: '+result.sha256+'.';
+ }catch(err){draftContentResult.textContent='DRAFT tartalmi ellenorzes sikertelen: '+(err?.message||'ismeretlen hiba');}
+ finally{draftVerifyButton.disabled=!draftTransferText||!downloadedDraft.files?.length;}
 });
 let draftSaveBusy=false;
 draftSaveButton.addEventListener('click',async()=>{
