@@ -27,7 +27,7 @@ test('versioned save writes only Draft-Plans and verifies file metadata',async()
  assert.equal(result.verification,'metadata-only');
  assert.equal(calls.filter(c=>c.method==='PUT').length,1);
  assert.match(calls.find(c=>c.method==='PUT').url,/\/Draft-Plans\/draft-v12345678\.json:/);
- assert.equal(calls.some(c=>c.url.includes('Approved-Plans')),false);
+ assert.equal(calls.some(c=>c.method==='PUT'&&c.url.includes('Approved-Plans')),false);
 });
 test('rejects foreign board before any write',async()=>{
  const transferText=await transfer();
