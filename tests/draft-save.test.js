@@ -30,5 +30,6 @@ test('versioned save writes only Draft-Plans and verifies file metadata',async()
  assert.equal(calls.some(c=>c.url.includes('Approved-Plans')),false);
 });
 test('rejects foreign board before any write',async()=>{
- await assert.rejects(()=>saveDraftTransfer({transferText:await transfer(),boardId:'5105949528',driveId:'b!example',getAccessToken:async()=> 'test',fetcher:async()=>{throw Error('network called');},versionId:'v12345678'}),/board/);
+ const transferText=await transfer();
+ await assert.rejects(()=>saveDraftTransfer({transferText,boardId:'5105949528',driveId:'b!example',getAccessToken:async()=> 'test',fetcher:async()=>{throw Error('network called');},versionId:'v12345678'}),/board/);
 });
