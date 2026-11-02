@@ -169,7 +169,7 @@ document.querySelector('#restoreDraftFile').addEventListener('change',async even
  const file=event.target.files?.[0];
  if(!file){output.textContent='Nincs fajl kivalasztva.';return;}
  try{
-  if(!/^draft-[A-Za-z0-9_-]{8,100}\\.json$/.test(file.name)||file.size>5_000_000)throw new Error('Nem megfelelo mentett DRAFT fajl.');
+  if(!/^draft-[A-Za-z0-9_-]{8,100}\.json$/.test(file.name)||file.size>5_000_000)throw new Error('Nem megfelelo mentett DRAFT fajl.');
   const draft=inspectStoredDraft(await file.text(),projectBoard.value.trim());
   output.textContent='DRAFT helyben visszatoltve: '+draft.boardId+', verzio: '+draft.version+', feladatok: '+draft.taskCount+'. Csak olvasas.';
   const list=document.createElement('ul');
