@@ -1,3 +1,4 @@
+import {verifyEditedDraftDownload} from './edited-draft-verifier.js';
 import {validateEditedDraft} from './edited-draft-validator.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import { validatePlanPreview } from './plan-validator.js';
@@ -185,19 +186,39 @@ document.querySelector('#restoreDraftFile').addEventListener('change',async even
  }catch(err){output.textContent='DRAFT visszatoltes sikertelen: '+(err?.message||'ismeretlen');}
 });
 let editedDraftText=null,editedDraftChecked=null,editedBusy=false;
+const editedDownloaded=document.querySelector('#editedDownloadedFile');
+const editedVerifyButton=document.querySelector('#verifyEditedDraft');
+const editedVerifyResult=document.querySelector('#editedVerifyResult');
+editedDownloaded.addEventListener('change',()=>{
+ editedVerifyResult.textContent='Nincs ellenorzes.';
+ editedVerifyButton.disabled=!editedDraftText||!editedDownloaded.files?.length;
+});
+editedVerifyButton.addEventListener('click',async()=>{
+ editedVerifyButton.disabled=true;
+ try{
+  if(!editedDraftText)throw new Error('Eredeti szerkesztett DRAFT szukseges.');
+  const file=editedDownloaded.files?.[0];
+  if(!file||file.size>5_000_000)throw new Error('Valassz egy letoltott DRAFT fajlt.');
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  const result=await verifyEditedDraftDownload({originalText:editedDraftText,downloadedBytes:bytes,boardId:projectBoard.value.trim()});
+  editedVerifyResult.textContent='TELJES DRAFT v'+result.version+' SHA-256 EGYEZES. Board: '+result.boardId+'; feladatok: '+result.taskCount+'; meret: '+result.bytes+' byte; SHA-256: '+result.sha256+'.';
+ }catch(e){editedVerifyResult.textContent='DRAFT v1+ tartalmi ellenorzes sikertelen: '+(e.message||e);}
+ finally{editedVerifyButton.disabled=!editedDraftText||!editedDownloaded.files?.length;}
+});
+
 const editedFile=document.querySelector('#editedDraftFile');
 const editedSave=document.querySelector('#saveEditedDraft');
 const editedStatus=document.querySelector('#editedDraftStatus');
 const editedResult=document.querySelector('#editedDraftSaveResult');
 editedFile.addEventListener('change',async()=>{
- editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;
+ editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs feltoltes.';
  try{
   const file=editedFile.files?.[0];
   if(!file||file.size>5_000_000)throw new Error('Valassz 5 MB alatti DRAFT JSON fajlt.');
   const text=await file.text();
   const valid=await validateEditedDraft(text,projectBoard.value.trim());
-  editedDraftText=text;editedDraftChecked=valid;
+  editedDraftText=text;editedDraftChecked=valid;editedVerifyButton.disabled=!editedDownloaded.files?.length;
   editedStatus.textContent='Szerkesztett DRAFT ellenorizve: '+valid.boardId+', verzio '+valid.version+', '+valid.taskCount+' feladat, SHA-256 '+valid.sha256;
   editedSave.disabled=!msal.getAllAccounts().length;
  }catch(e){editedStatus.textContent='Ellenorzes sikertelen: '+e.message;}
