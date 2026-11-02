@@ -2,6 +2,7 @@ import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-brows
 import { validatePlanPreview } from './plan-validator.js';
 import { uploadTestPreview } from './sharepoint-upload.js';
 import { verifyExistingTest } from './verify-upload.js';
+import {createProjectStorage} from './project-storage.js';
 const clientId='3a2cf530-d7a7-4e48-bb90-023d7e293e7a';
 const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
 const redirectUri=new URL('./redirect.html',window.location.href).href;
@@ -10,6 +11,9 @@ const status=document.querySelector('#authResult');
 const graphButton=document.querySelector('#checkSharePoint');
 const graphResult=document.querySelector('#sharePointResult');
 const driveId='b!YBiCN3mDjkCA0zlGakoS1F6FNi-WzO5Ip7eBTLppUVCRBefvaJ27TYm2xryC37MY';
+const projectBoard=document.querySelector('#projectBoardId');
+const projectSetup=document.querySelector('#setupProject');
+const projectResult=document.querySelector('#projectResult');
 const uploadButton=document.querySelector('#uploadTest');
 const uploadResult=document.querySelector('#uploadResult');
 const verifyButton=document.querySelector('#verifyExisting');
@@ -22,6 +26,7 @@ const msal=new PublicClientApplication({
 });
 function showAccount(account){
  graphButton.disabled=!account;
+ projectSetup.disabled=!account;
  uploadButton.disabled=!account || !validatedPreview;
  verifyButton.disabled=!account;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
@@ -97,6 +102,26 @@ graphButton.addEventListener('click',async()=>{
  }catch(err){
   graphResult.textContent='A SharePoint olvasási teszt nem sikerült: '+(err?.errorCode||err?.message||'ismeretlen hiba')+'. Az alkalmazás nem módosított fájlt.';
  }finally{graphBusy=false;graphButton.disabled=!msal.getAllAccounts().length;}
+});
+let projectBusy=false;
+projectSetup.addEventListener('click',async()=>{
+ if(projectBusy)return;
+ const boardId=projectBoard.value.trim();
+ if(!/^\\d{5,20}$/.test(boardId)){projectResult.textContent='Adj meg ervenyes numerikus Monday Board ID-t.';return;}
+ const account=msal.getAllAccounts()[0];
+ if(!account){projectResult.textContent='Elobb jelentkezz be Microsoft-fiokkal.';return;}
+ if(!window.confirm('Letrehozzuk a hianyzo mappakat a Flow-LPS-Storage / Projects / '+boardId+' utvonalon? Meglevo fajlokat nem modositunk.'))return;
+ projectBusy=true;projectSetup.disabled=true;projectResult.textContent='Projektmappak ellenorzese es elokeszitese...';
+ try{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+  let auth;
+  try{auth=await msal.acquireTokenSilent(request);}
+  catch(err){if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(err?.errorCode))throw err;auth=await msal.acquireTokenPopup(request);}
+  const store=createProjectStorage({driveId,getAccessToken:async()=>auth.accessToken});
+  const result=await store.ensure(boardId);
+  projectResult.textContent='Projekt tarhely ellenorizve: '+result.path+'\\nAlmappak: '+result.folders.join(', ')+'\\nIgazolas: mappa-metaadatok. Monday adatok valtozatlanok.';
+ }catch(err){projectResult.textContent='A projekt tarhely elokeszitese sikertelen: '+(err?.message||'ismeretlen hiba');}
+ finally{projectBusy=false;projectSetup.disabled=!msal.getAllAccounts().length;}
 });
 const file=document.querySelector('#file');
 const result=document.querySelector('#result');
