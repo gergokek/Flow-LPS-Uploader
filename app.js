@@ -3,6 +3,7 @@ import { validatePlanPreview } from './plan-validator.js';
 import { uploadTestPreview } from './sharepoint-upload.js';
 import { verifyExistingTest } from './verify-upload.js';
 import {createProjectStorage} from './project-storage.js';
+import {validateDraftTransfer} from './draft-transfer-validator.js';
 const clientId='3a2cf530-d7a7-4e48-bb90-023d7e293e7a';
 const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
 const redirectUri=new URL('./redirect.html',window.location.href).href;
@@ -122,6 +123,17 @@ projectSetup.addEventListener('click',async()=>{
   projectResult.textContent='Projekt tarhely ellenorizve: '+result.path+'\\nAlmappak: '+result.folders.join(', ')+'\\nIgazolas: mappa-metaadatok. Monday adatok valtozatlanok.';
  }catch(err){projectResult.textContent='A projekt tarhely elokeszitese sikertelen: '+(err?.message||'ismeretlen hiba');}
  finally{projectBusy=false;projectSetup.disabled=!msal.getAllAccounts().length;}
+});
+document.querySelector('#draftTransferFile').addEventListener('change',async event=>{
+ const output=document.querySelector('#draftTransferResult');
+ const selected=event.target.files?.[0];
+ if(!selected){output.textContent='Nincs fajl kivalasztva.';return;}
+ try{
+  if(selected.size>5_000_000)throw new Error('Tul nagy fajl.');
+  const boardId=document.querySelector('#projectBoardId').value.trim();
+  const draft=await validateDraftTransfer(await selected.text(),{expectedBoardId:boardId});
+  output.textContent='DRAFT ellenorzes sikeres. Board: '+draft.boardId+'; feladatok: '+draft.taskCount+'; SHA-256: '+draft.sha256+'. Nem kerult SharePointra es nincs jovahagyva.';
+ }catch(err){output.textContent='DRAFT ellenorzes sikertelen: '+(err?.message||'ismeretlen hiba');}
 });
 const file=document.querySelector('#file');
 const result=document.querySelector('#result');
