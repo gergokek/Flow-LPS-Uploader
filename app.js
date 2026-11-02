@@ -6,6 +6,7 @@ import {createProjectStorage} from './project-storage.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
 import {saveDraftTransfer} from './draft-save.js';
 import {verifyDownloadedDraft} from './draft-content-verifier.js';
+import {inspectStoredDraft} from './draft-workspace.js';
 const clientId='3a2cf530-d7a7-4e48-bb90-023d7e293e7a';
 const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
 const redirectUri=new URL('./redirect.html',window.location.href).href;
@@ -160,6 +161,26 @@ draftVerifyButton.addEventListener('click',async()=>{
   draftContentResult.textContent='TELJES DRAFT TARTALMI EGYEZES. Board: '+result.boardId+'; feladatok: '+result.taskCount+'; meret: '+result.bytes+' byte; SHA-256: '+result.sha256+'.';
  }catch(err){draftContentResult.textContent='DRAFT tartalmi ellenorzes sikertelen: '+(err?.message||'ismeretlen hiba');}
  finally{draftVerifyButton.disabled=!draftTransferText||!downloadedDraft.files?.length;}
+});
+document.querySelector('#restoreDraftFile').addEventListener('change',async event=>{
+ const output=document.querySelector('#restoreDraftResult');
+ const preview=document.querySelector('#restoreDraftPreview');
+ preview.replaceChildren();
+ const file=event.target.files?.[0];
+ if(!file){output.textContent='Nincs fajl kivalasztva.';return;}
+ try{
+  if(!/^draft-[A-Za-z0-9_-]{8,100}\\.json$/.test(file.name)||file.size>5_000_000)throw new Error('Nem megfelelo mentett DRAFT fajl.');
+  const draft=inspectStoredDraft(await file.text(),projectBoard.value.trim());
+  output.textContent='DRAFT helyben visszatoltve: '+draft.boardId+', verzio: '+draft.version+', feladatok: '+draft.taskCount+'. Csak olvasas.';
+  const list=document.createElement('ul');
+  for(const task of draft.tasks.slice(0,20)){
+   const item=document.createElement('li');
+   item.textContent=task.name+' ('+task.id+') – Forecast: '+(task.forecast?task.forecast.from+' – '+task.forecast.to:'nincs');
+   list.append(item);
+  }
+  preview.append(list);
+  if(draft.taskCount>20)preview.append(document.createTextNode('Az elonezet az elso 20 feladatot mutatja.'));
+ }catch(err){output.textContent='DRAFT visszatoltes sikertelen: '+(err?.message||'ismeretlen');}
 });
 let draftSaveBusy=false;
 draftSaveButton.addEventListener('click',async()=>{
