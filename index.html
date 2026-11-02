@@ -17,6 +17,12 @@
 <button type="button" id="checkSharePoint" disabled>SharePoint-kapcsolat tesztelése</button>
 <output id="sharePointResult" role="status" aria-live="polite">A Microsoft-bejelentkezés után indítható. Fájlt nem módosítunk.</output>
 </section>
+<section><h2>Projektmappák előkészítése</h2>
+<p class="hint">Külön Microsoft-bejelentkezés után a board ID alapján ellenőrzi vagy létrehozza a Projects/{BoardID} mappát, valamint a Draft-Plans, Approved-Plans, Sync-Status, Backups és Logs almappákat. Nem módosít Monday-adatokat, meglévő SharePoint-fájlokat vagy jóváhagyott terveket.</p>
+<label for="projectBoardId">Monday Board ID</label><input id="projectBoardId" type="text" inputmode="numeric" value="5107075373" maxlength="20">
+<button type="button" id="setupProject" disabled>Projektmappák előkészítése a SharePointon</button>
+<output id="projectResult" role="status" aria-live="polite">Még nem történt projektmappa-ellenőrzés.</output>
+</section>
 <section><h2>Tervelőnézet helyi ellenőrzése</h2>
 <label for="file">Flow LPS JSON-fájl</label><input id="file" type="file" accept=".json,application/json">
 <p class="hint">A fájlt kizárólag a böngésződ olvassa be. Nem kerül a GitHubra.</p>
