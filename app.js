@@ -4,6 +4,7 @@ import { uploadTestPreview } from './sharepoint-upload.js';
 import { verifyExistingTest } from './verify-upload.js';
 import {createProjectStorage} from './project-storage.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
+import {saveDraftTransfer} from './draft-save.js';
 const clientId='3a2cf530-d7a7-4e48-bb90-023d7e293e7a';
 const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
 const redirectUri=new URL('./redirect.html',window.location.href).href;
@@ -21,6 +22,9 @@ const verifyButton=document.querySelector('#verifyExisting');
 const verifyResult=document.querySelector('#verifyResult');
 const verifyFilename=document.querySelector('#verifyFilename');
 let validatedPreview=null;
+let draftTransferText=null;
+const draftSaveButton=document.querySelector('#saveDraft');
+const draftSaveResult=document.querySelector('#draftSaveResult');
 const msal=new PublicClientApplication({
  auth:{clientId,authority:'https://login.microsoftonline.com/'+tenantId,redirectUri,navigateToLoginRequestUrl:false},
  cache:{cacheLocation:BrowserCacheLocation.SessionStorage,storeAuthStateInCookie:false}
@@ -30,6 +34,7 @@ function showAccount(account){
  projectSetup.disabled=!account;
  uploadButton.disabled=!account || !validatedPreview;
  verifyButton.disabled=!account;
+ draftSaveButton.disabled=!account||!draftTransferText;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
  status.textContent='Sikeres Microsoft-bejelentkezés.\nNév: '+(account.name||'—')+'\nFiók: '+(account.username||'—')+'\nSharePoint-hozzáférés: a külön tesztgombbal ellenőrizhető.';
 }
@@ -125,15 +130,40 @@ projectSetup.addEventListener('click',async()=>{
  finally{projectBusy=false;projectSetup.disabled=!msal.getAllAccounts().length;}
 });
 document.querySelector('#draftTransferFile').addEventListener('change',async event=>{
+ draftTransferText=null;draftSaveButton.disabled=true;draftSaveResult.textContent='Nincs DRAFT feltoltes inditva.';
  const output=document.querySelector('#draftTransferResult');
  const selected=event.target.files?.[0];
  if(!selected){output.textContent='Nincs fajl kivalasztva.';return;}
  try{
   if(selected.size>5_000_000)throw new Error('Tul nagy fajl.');
   const boardId=document.querySelector('#projectBoardId').value.trim();
-  const draft=await validateDraftTransfer(await selected.text(),{expectedBoardId:boardId});
+  const content=await selected.text();
+  const draft=await validateDraftTransfer(content,{expectedBoardId:boardId});
+  draftTransferText=content;draftSaveButton.disabled=!msal.getAllAccounts().length;
   output.textContent='DRAFT ellenorzes sikeres. Board: '+draft.boardId+'; feladatok: '+draft.taskCount+'; SHA-256: '+draft.sha256+'. Nem kerult SharePointra es nincs jovahagyva.';
  }catch(err){output.textContent='DRAFT ellenorzes sikertelen: '+(err?.message||'ismeretlen hiba');}
+});
+let draftSaveBusy=false;
+draftSaveButton.addEventListener('click',async()=>{
+ if(draftSaveBusy||!draftTransferText)return;
+ const boardId=projectBoard.value.trim(),account=msal.getAllAccounts()[0];
+ if(!account){draftSaveResult.textContent='Microsoft bejelentkezes szukseges.';return;}
+ const transfer=draftTransferText;
+ try{await validateDraftTransfer(transfer,{expectedBoardId:boardId});}
+ catch(e){draftTransferText=null;draftSaveButton.disabled=true;draftSaveResult.textContent='Ujra kell ellenorizni a DRAFT fajlt: '+e.message;return;}
+ if(!window.confirm('Uj, nem jovahagyott DRAFT verziot hozunk letre: Projects/'+boardId+'/Draft-Plans. A muvelet nem ir a Monday-ra. Folytatod?'))return;
+ draftSaveBusy=true;draftSaveButton.disabled=true;draftSaveResult.textContent='DRAFT feltoltes es metaadat ellenorzes...';
+ try{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+  const getAccessToken=async()=>{
+   try{return (await msal.acquireTokenSilent(request)).accessToken;}
+   catch(e){if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;return (await msal.acquireTokenPopup(request)).accessToken;}
+  };
+  const versionId='v'+Date.now().toString(36)+'-'+crypto.randomUUID().slice(0,12);
+  const result=await saveDraftTransfer({transferText:transfer,boardId,driveId,getAccessToken,versionId});
+  draftSaveResult.textContent='DRAFT mentve: '+result.path+'\\nMeret: '+result.bytes+' byte; SHA-256: '+result.sha256+'\\nIgazolas: csak metaadat. A teljes SharePoint-tartalom visszaolvasasa meg nem igazolt. Nem jovahagyott es nem Monday-szinkronizalt.';
+ }catch(e){draftSaveResult.textContent='DRAFT mentes vagy ellenorzes hibas: '+(e?.message||'ismeretlen')+'. A fajl esetleg mar letrejott; ujraprobalas elott ellenorizd a mappat.';}
+ finally{draftSaveBusy=false;draftSaveButton.disabled=!draftTransferText||!msal.getAllAccounts().length;}
 });
 const file=document.querySelector('#file');
 const result=document.querySelector('#result');
