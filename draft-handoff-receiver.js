@@ -1,9 +1,9 @@
 const protocol='flow-lps-draft-handoff-v1';
 const nonceRegex=/^[0-9a-f-]{36}$/i;
 // Verified receipts are UI feedback only. They do not authorize Monday writes.
-export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{}}={}){
+export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{}}={}){
  if(!win||typeof win.addEventListener!=='function'||typeof onDraft!=='function'||
-    typeof onRevision!=='function')throw Error('Invalid handoff receiver');
+    typeof onRevision!=='function'||typeof onAcceptedRevision!=='function')throw Error('Invalid handoff receiver');
  const params=new URLSearchParams((win.location.hash||'').replace(/^#/,''));
  const nonce=params.get('draft-handoff');
  if(!nonce||!nonceRegex.test(nonce)||!win.opener)
@@ -33,6 +33,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{}}={
    accepted={boardId,version:verified.version,sha256:verified.sha256,
     bytes:verified.bytes,sourceOrigin:event.origin};
    win.opener?.postMessage({protocol,kind:'received',nonce},event.origin);
+   if(kind==='revision')onAcceptedRevision({...verified,content});
   }catch{
    // Invalid data: no ACK, no write authorization.
   }finally{busy=false;}
