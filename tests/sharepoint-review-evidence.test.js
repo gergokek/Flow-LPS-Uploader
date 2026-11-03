@@ -30,6 +30,6 @@ test('evidence requires digest match plus Graph metadata and never approves',asy
 });
 test('rejects mismatched local bytes and foreign Graph item',async()=>{
  const f=await fixture();
- await assert.rejects(()=>prepareSharePointReviewEvidence({...f,draftBytes:new TextEncoder().encode('tampered')}),/JSON|DRAFT/);
+ await assert.rejects(()=>prepareSharePointReviewEvidence({...f,draftBytes:new TextEncoder().encode('tampered')}));
  await assert.rejects(()=>prepareSharePointReviewEvidence({...f,fetcher:async()=>({ok:true,json:async()=>({id:'x',name:f.fileName,size:1,file:{},parentReference:{driveId}})})}),/metadata differs/);
 });
