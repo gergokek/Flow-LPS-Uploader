@@ -1,3 +1,4 @@
+import {listStoredDraftVersions,loadStoredDraftVersion} from './sharepoint-version-picker.js';
 import {checkApproverPreflight} from './approver-identity-preflight.js';
 import {verifyGraphDraftContent} from './graph-draft-content-verifier.js';
 import {prepareSharePointReviewEvidence} from './sharepoint-review-evidence.js';
@@ -213,6 +214,64 @@ document.querySelector('#checkApproverIdentity').addEventListener('click',async(
    '. Jogosultsag nem igazolt. Jovahagyas es Monday-szinkron tovabbra is tiltva.';
  }catch(e){approverIdentityResult.textContent='Entra-azonositas sikertelen: '+(e?.message||e)+
   '. Jovahagyas es Monday-szinkron tovabbra is tiltva.';}
+});
+const pickerList=document.querySelector('#listGraphDraftVersions');
+const pickerSelect=document.querySelector('#graphDraftVersionSelect');
+const pickerVerify=document.querySelector('#loadGraphDraftVersion');
+const pickerDownload=document.querySelector('#downloadGraphDraftVersion');
+const pickerResult=document.querySelector('#graphDraftVersionResult');
+let pickerEntries=[],pickerVerified=null;
+const pickerToken=async()=>{
+ const account=msal.getAllAccounts()[0];
+ if(!account)throw Error('Microsoft bejelentkezes szukseges.');
+ const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+ try{return (await msal.acquireTokenSilent(request)).accessToken;}
+ catch(e){
+  if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;
+  return (await msal.acquireTokenPopup(request)).accessToken;
+ }
+};
+pickerList.addEventListener('click',async()=>{
+ pickerList.disabled=true;pickerEntries=[];pickerVerified=null;
+ pickerVerify.disabled=true;pickerDownload.disabled=true;pickerSelect.disabled=true;
+ pickerSelect.replaceChildren(new Option('Nincs verzio',''));
+ pickerResult.textContent='SharePoint verzio lista betoltese...';
+ try{
+  const boardId=projectBoard.value.trim();
+  pickerEntries=await listStoredDraftVersions({boardId,driveId,getAccessToken:pickerToken});
+  for(let i=0;i<pickerEntries.length;i++){
+   const e=pickerEntries[i];
+   pickerSelect.add(new Option('v'+e.version+' | '+e.name+' | '+(e.modifiedAt||'nincs datum'),String(i)));
+  }
+  if(pickerEntries.length){pickerSelect.remove(0);pickerSelect.disabled=false;pickerVerify.disabled=false;}
+  pickerResult.textContent=pickerEntries.length+' SharePoint DRAFT-verzio elerheto. Valassz verziot az ellenorzeshez.';
+ }catch(e){pickerResult.textContent='Verziolista nem erheto el: '+(e?.message||e);}
+ finally{pickerList.disabled=false;}
+});
+pickerSelect.addEventListener('change',()=>{
+ pickerVerified=null;pickerDownload.disabled=true;pickerVerify.disabled=!pickerSelect.value;
+ pickerResult.textContent='A kivalasztott verziot ellenorizni kell a letoltes elott.';
+});
+pickerVerify.addEventListener('click',async()=>{
+ pickerVerified=null;pickerDownload.disabled=true;pickerVerify.disabled=true;
+ pickerResult.textContent='SHA-256 es SharePoint eTag ellenorzese...';
+ try{
+  const selected=pickerEntries[Number(pickerSelect.value)];
+  if(!selected)throw Error('Valassz egy DRAFT verziot.');
+  pickerVerified=await loadStoredDraftVersion({boardId:projectBoard.value.trim(),
+   driveId,selected,getAccessToken:pickerToken});
+  pickerResult.textContent='Ellenorzott DRAFT v'+pickerVerified.version+'; '+pickerVerified.taskCount+
+   ' feladat; SHA-256 '+pickerVerified.sha256+'. Monday es SharePoint valtozatlan.';
+  pickerDownload.disabled=false;
+ }catch(e){pickerResult.textContent='DRAFT ellenorzes sikertelen: '+(e?.message||e);}
+ finally{pickerVerify.disabled=!pickerSelect.value;}
+});
+pickerDownload.addEventListener('click',()=>{
+ if(!pickerVerified)return;
+ const url=URL.createObjectURL(new Blob([pickerVerified.content],{type:'application/json;charset=utf-8'}));
+ try{const a=document.createElement('a');a.href=url;a.download=pickerVerified.name;
+  document.body.append(a);a.click();a.remove();}
+ finally{setTimeout(()=>URL.revokeObjectURL(url),30000);}
 });
 let directGraphEvidence=null;
 let verifiedGraphDraftText=null;
