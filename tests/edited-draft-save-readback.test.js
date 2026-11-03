@@ -20,7 +20,7 @@ function mock(content,{corrupt=false,etagChange=false,cors=false,wrongId=false}=
  const calls=[],folders=new Map([['',{id:'root',folder:{}}],['Projects',{id:'projects',folder:{}}]]);
  const fileId='item-v4';
  let checks=0;
- const payload=new TextEncoder().encode(corrupt?content+' ':content);
+ const payload=new TextEncoder().encode(corrupt?content.replace('2026-11-30','2026-11-29'):content);
  const goodSize=new TextEncoder().encode(content).byteLength;
  const metadata=()=>({id:wrongId?'other-item':fileId,name:filename,size:goodSize,file:{},
   eTag:etagChange&&checks++>=2?'etag-2':'etag-1',
