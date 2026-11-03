@@ -1,0 +1,30 @@
+name: Verify Azure Function server
+on:
+  push:
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-verify.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-verify.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated server dependencies
+        working-directory: server
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run server tests
+        working-directory: server
+        run: npm test
+      - name: Check Azure Function imports
+        working-directory: server
+        run: node --check src/index.js && node --check src/verify-stored-draft.js
