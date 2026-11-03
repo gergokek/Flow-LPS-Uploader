@@ -1,3 +1,4 @@
+import {verifyGraphDraftContent} from './graph-draft-content-verifier.js';
 import {validateEditedDraft} from './edited-draft-validator.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
 import {createProjectStorage} from './project-storage.js';
@@ -24,5 +25,27 @@ export async function saveDraftTransfer({transferText,boardId,driveId,getAccessT
  if(!metadataResponse.ok)throw new Error('A fajl felkerult, de a metaadat ellenorzese sikertelen: HTTP '+metadataResponse.status);
  const metadata=await metadataResponse.json();
  if(metadata.id!==created.id||metadata.name!==filename||metadata.size!==body.length||!metadata.file)throw new Error('A SharePoint fajl metaadatai elternek.');
- return Object.freeze({boardId,name:filename,id:created.id,bytes:body.length,sha256:valid.sha256,path:'Projects/'+boardId+'/Draft-Plans/'+filename,verification:'metadata-only'});
+ const path='Projects/'+boardId+'/Draft-Plans/'+filename;
+ if(editedDraftText===undefined)
+  return Object.freeze({boardId,name:filename,id:created.id,bytes:body.length,sha256:valid.sha256,path,verification:'metadata-only'});
+ // The edited DRAFT save can only be fully verified from a fresh, authenticated
+ // Graph readback. Never infer integrity from PUT success or item metadata alone.
+ const requestText=JSON.stringify({schemaVersion:1,format:'flow-lps-draft-review-request',
+  status:'REVIEW_REQUEST',isApprovedPlan:false,approvalDecision:null,mondaySyncAllowed:false,
+  draft:{boardId,version:valid.version,taskCount:valid.taskCount,bytes:valid.bytes,sha256:valid.sha256}});
+ let evidence;
+ try{
+  evidence=await verifyGraphDraftContent({requestText,boardId,driveId,fileName:filename,
+   getAccessToken,fetcher});
+  if(evidence.sharePoint.itemId!==created.id)throw Error('SharePoint file identity changed after upload');
+ }catch(cause){
+  const err=new Error('A DRAFT felkerult a SharePointra, de a teljes tartalmi ellenorzes nem sikerult: '+
+   (cause?.message||'ismeretlen hiba')+'. Ne ismeteld meg automatikusan a feltoltest.');
+  err.uploaded={boardId,id:created.id,name:filename,path,bytes:body.length,sha256:valid.sha256};
+  throw err;
+ }
+ return Object.freeze({boardId,name:filename,id:created.id,bytes:body.length,sha256:valid.sha256,path,
+  verification:'content-sha256-and-etag',eTag:evidence.sharePoint.eTag,
+  checks:evidence.checks,isApprovedPlan:false,mondaySyncAllowed:false});
+
 }
