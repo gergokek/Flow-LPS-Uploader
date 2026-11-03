@@ -3,6 +3,17 @@ import {validateEditedDraft} from './edited-draft-validator.js';
 const graphRoot='https://graph.microsoft.com/v1.0/drives/';
 const filenamePattern=/^draft-v([1-9]\d*)-[A-Za-z0-9_-]{8,100}\.json$/;
 const maxBytes=5_000_000;
+const allowedDownloadHosts=['.sharepoint.com','.sharepointonline.com','.sharepoint-df.com','.1drv.com','.blob.core.windows.net'];
+function safeDownloadUrl(value){
+ if(typeof value!=='string')throw new Error('Graph did not provide a preauthenticated download URL');
+ let url;
+ try{url=new URL(value);}catch{throw new Error('Graph returned invalid download URL');}
+ if(url.protocol!=='https:'||url.username||url.password||url.port||
+    !allowedDownloadHosts.some(suffix=>url.hostname.toLowerCase().endsWith(suffix)))
+  throw new Error('Graph returned untrusted download URL');
+ return url.href;
+}
+
 
 function reviewData(json,boardId){
  const r=JSON.parse(json);
@@ -29,7 +40,7 @@ export async function verifyGraphDraftContent({requestText,boardId,driveId,fileN
  const path='Projects/'+boardId+'/Draft-Plans/'+fileName;
  const rootUrl=graphRoot+encodeURIComponent(driveId);
  const pathUrl=rootUrl+'/root:/'+path.split('/').map(encodeURIComponent).join('/');
- const metadataUrl=pathUrl+'?$select=id,name,size,file,parentReference,eTag,lastModifiedDateTime';
+ const metadataUrl=pathUrl+'?$select=id,name,size,file,parentReference,eTag,lastModifiedDateTime,%40microsoft.graph.downloadUrl';
  const requestMetadata=async()=>{
   const response=await fetcher(metadataUrl,{method:'GET',cache:'no-store',redirect:'error',headers:auth});
   if(!response.ok)throw new Error('Graph metadata HTTP '+response.status);
@@ -41,18 +52,21 @@ export async function verifyGraphDraftContent({requestText,boardId,driveId,fileN
   return item;
  };
  const first=await requestMetadata();
+ // Graph /content triggers an authenticated 302 redirect that browsers cannot
+ // follow during CORS preflight. Use the short-lived, preauthenticated URL instead.
+ // Never forward the Microsoft Graph bearer token or cookies to the download host.
+ const downloadUrl=safeDownloadUrl(first['@microsoft.graph.downloadUrl']);
  let response;
  try{
-  // Graph /content normally redirects to a SharePoint download endpoint.
-  // Cross-origin browser policies may block reading that endpoint: fail closed.
-  response=await fetcher(rootUrl+'/items/'+encodeURIComponent(first.id)+'/content',{
-   method:'GET',cache:'no-store',redirect:'follow',headers:{Authorization:'Bearer '+token}});
+  response=await fetcher(downloadUrl,{method:'GET',mode:'cors',cache:'no-store',
+   credentials:'omit',referrerPolicy:'no-referrer',redirect:'follow'});
  }catch{
-  throw new Error('Graph content read blocked by browser CORS or network; no content attestation produced');
+  throw new Error('Preauthenticated SharePoint download blocked by CORS or network; no content attestation produced');
  }
- if(!response.ok)throw new Error('Graph content HTTP '+response.status);
- const length=Number(response.headers?.get?.('content-length'));
- if(Number.isFinite(length)&&length>maxBytes)throw new Error('Graph content exceeds size limit');
+ if(!response.ok)throw new Error('Preauthenticated SharePoint download HTTP '+response.status);
+ const lengthRaw=response.headers?.get?.('content-length');
+ if(lengthRaw!==null&&lengthRaw!==undefined&&(!/^\\d+$/.test(lengthRaw)||Number(lengthRaw)>maxBytes))
+  throw new Error('SharePoint content exceeds size limit');
  const buffer=await response.arrayBuffer();
  if(buffer.byteLength!==review.draft.bytes||buffer.byteLength>maxBytes)
   throw new Error('Graph downloaded content size mismatch');
