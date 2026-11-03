@@ -1,3 +1,4 @@
+import {createSessionDraftAutosave} from './draft-session-autosave.js';
 import {attachDraftHandoff} from './draft-handoff-receiver.js';
 import {listStoredDraftVersions,loadStoredDraftVersion} from './sharepoint-version-picker.js';
 import {verifyGraphDraftContent} from './graph-draft-content-verifier.js';
@@ -350,6 +351,45 @@ editedFile.addEventListener('change',async()=>{
 });
 // One-time browser handoff from Monday. The received JSON is untrusted input:
  // validate it locally and require a separate Microsoft-authenticated save click.
+const autoCheckbox=document.querySelector('#enableSessionAutosave');
+const autoOutput=document.querySelector('#sessionAutosaveResult');
+let manualSaveVerified=false;
+const sessionAutosave=createSessionDraftAutosave({
+ save:async work=>{
+  if(editedBusy)throw Error('A korabbi DRAFT mentes meg folyamatban van.');
+  const account=msal.getAllAccounts()[0];
+  if(!account)throw Error('Microsoft bejelentkezes szukseges.');
+  const boardId=projectBoard.value.trim();
+  const validated=await validateEditedDraft(work.content,boardId);
+  if(validated.version!==work.version||validated.sha256!==work.sha256)
+   throw Error('A munkaterv megvaltozott.');
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+  const getAccessToken=async()=> (await msal.acquireTokenSilent(request)).accessToken;
+  const versionId='v'+work.version+'-'+Date.now().toString(36)+'-'+crypto.randomUUID().slice(0,12);
+  const saved=await saveDraftTransfer({editedDraftText:work.content,boardId,driveId,getAccessToken,versionId});
+  const received=draftHandoff.publishVerifiedReceipt({boardId,version:work.version,
+   sha256:saved.sha256,bytes:saved.bytes,name:saved.name,itemId:saved.id,eTag:saved.eTag,
+   verification:saved.verification});
+  if(!received)throw Error('A SharePoint mentes igazolt, de a Monday visszajelzese nem lehetett osszeegyeztetni az aktualis DRAFT-tal.');
+  editedResult.textContent='DRAFT v'+work.version+' automatikusan mentve es Graph SHA-256 / eTag visszaellenorizve.\nFajl: '+saved.path+'\nSHA-256: '+saved.sha256;
+  return {...saved,version:work.version};
+ },
+ onState:state=>{
+  autoCheckbox.checked=state.enabled;
+  autoOutput.textContent=state.error?'Automatikus mentes LEALLITVA: '+state.error+
+   '. Ellenorizd a SharePoint fajllistat. Nem tortenik automatikus ujraprobalas.':
+   !state.enabled?'Automatikus mentés kikapcsolva.':
+   state.busy?'SharePoint-mentes es tartalmi ellenorzes folyamatban...':
+   state.pendingRevision?'DRAFT v'+state.pendingRevision+' automatikus mentese elokeszitve.':
+   'Automatikus mentés bekapcsolva erre az ablakra. A következő módosításokat figyeli.';
+ }
+});
+autoCheckbox.addEventListener('change',()=>{
+ if(autoCheckbox.checked){
+  if(!manualSaveVerified||!msal.getAllAccounts()[0]){autoCheckbox.checked=false;return;}
+  sessionAutosave.enable();
+ }else sessionAutosave.disable();
+});
 const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
@@ -363,6 +403,18 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   document.querySelector('#editedDraftFile')?.closest('section')?.scrollIntoView({block:'start'});
   return {boardId:valid.boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
  }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
+},onRevision:async({content,boardId})=>{
+ if(boardId!==projectBoard.value.trim())throw Error('Eltero Monday-board.');
+ const valid=await validateEditedDraft(content,boardId);
+ if(editedDraftChecked&&valid.version<=editedDraftChecked.version)
+  throw Error('Nem ujabb DRAFT verzio.');
+ editedDraftText=content;editedDraftChecked=valid;editedSave.disabled=!msal.getAllAccounts().length;
+ editedStatus.textContent='DRAFT v'+valid.version+' atveve a Monday-bol: '+valid.taskCount+
+  ' feladat. SharePoint visszaigazolas meg nincs.';
+ return {boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
+},onAcceptedRevision:work=>{
+ if(sessionAutosave.state().enabled)sessionAutosave.enqueue(work);
+ else autoOutput.textContent='Uj DRAFT v'+work.version+' erkezett. Automatikus mentes nincs engedelyezve; kezi mentes szukseges.';
 }});
 editedSave.addEventListener('click',async()=>{
  if(editedBusy||!editedDraftText||!editedDraftChecked)return;
@@ -371,6 +423,7 @@ editedSave.addEventListener('click',async()=>{
  const valid=await validateEditedDraft(editedDraftText,boardId);
  if(valid.sha256!==editedDraftChecked.sha256)throw new Error('DRAFT megvaltozott.');
  if(!window.confirm('DRAFT v'+valid.version+' uj, nem jovahagyott SharePoint fajlkent mentve. Nincs Monday-szinkron. Folytatod?'))return;
+ if(sessionAutosave.state().enabled){sessionAutosave.disable();autoOutput.textContent='Automatikus mentes leallitva a manualis mentes miatt.';}
  editedBusy=true;editedSave.disabled=true;editedResult.textContent='DRAFT v'+valid.version+' feltoltese...';
  try{
   const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
@@ -380,6 +433,7 @@ editedSave.addEventListener('click',async()=>{
   };
   const versionId='v'+valid.version+'-'+Date.now().toString(36)+'-'+crypto.randomUUID().slice(0,12);
   const saved=await saveDraftTransfer({editedDraftText,boardId,driveId,getAccessToken,versionId});
+  manualSaveVerified=true;autoCheckbox.disabled=false;
   draftHandoff.publishVerifiedReceipt({boardId,version:valid.version,sha256:saved.sha256,
    bytes:saved.bytes,name:saved.name,itemId:saved.id,eTag:saved.eTag,
    verification:saved.verification});
