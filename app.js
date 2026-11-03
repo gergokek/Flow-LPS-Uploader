@@ -6,9 +6,6 @@ import {prepareSharePointReviewEvidence} from './sharepoint-review-evidence.js';
 import {verifyEditedDraftDownload} from './edited-draft-verifier.js';
 import {validateEditedDraft} from './edited-draft-validator.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
-import { validatePlanPreview } from './plan-validator.js';
-import { uploadTestPreview } from './sharepoint-upload.js';
-import { verifyExistingTest } from './verify-upload.js';
 import {createProjectStorage} from './project-storage.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
 import {saveDraftTransfer} from './draft-save.js';
@@ -25,12 +22,6 @@ const driveId='b!YBiCN3mDjkCA0zlGakoS1F6FNi-WzO5Ip7eBTLppUVCRBefvaJ27TYm2xryC37M
 const projectBoard=document.querySelector('#projectBoardId');
 const projectSetup=document.querySelector('#setupProject');
 const projectResult=document.querySelector('#projectResult');
-const uploadButton=document.querySelector('#uploadTest');
-const uploadResult=document.querySelector('#uploadResult');
-const verifyButton=document.querySelector('#verifyExisting');
-const verifyResult=document.querySelector('#verifyResult');
-const verifyFilename=document.querySelector('#verifyFilename');
-let validatedPreview=null;
 let draftTransferText=null;
 const draftSaveButton=document.querySelector('#saveDraft');
 const draftSaveResult=document.querySelector('#draftSaveResult');
@@ -44,8 +35,6 @@ const msal=new PublicClientApplication({
 function showAccount(account){
  graphButton.disabled=!account;
  projectSetup.disabled=!account;
- uploadButton.disabled=!account || !validatedPreview;
- verifyButton.disabled=!account;
  draftSaveButton.disabled=!account||!draftTransferText;
  editedSave.disabled=!account||!editedDraftText;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
@@ -440,87 +429,4 @@ draftSaveButton.addEventListener('click',async()=>{
   draftSaveResult.textContent='DRAFT mentve: '+result.path+'\\nMeret: '+result.bytes+' byte; SHA-256: '+result.sha256+'\\nIgazolas: csak metaadat. A teljes SharePoint-tartalom visszaolvasasa meg nem igazolt. Nem jovahagyott es nem Monday-szinkronizalt.';
  }catch(e){draftSaveResult.textContent='DRAFT mentes vagy ellenorzes hibas: '+(e?.message||'ismeretlen')+'. A fajl esetleg mar letrejott; ujraprobalas elott ellenorizd a mappat.';}
  finally{draftSaveBusy=false;draftSaveButton.disabled=!draftTransferText||!msal.getAllAccounts().length;}
-});
-const file=document.querySelector('#file');
-const result=document.querySelector('#result');
-const expectedBoard='5105949528';
-file.addEventListener('change',async()=>{
- validatedPreview=null;
- uploadButton.disabled=true;
- uploadResult.textContent='Nincs feltöltés indítva.';
- result.textContent='Ellenőrzés...';
- const chosen=file.files?.[0];
- if(!chosen){result.textContent='Nincs fájl kiválasztva.';return;}
- if(chosen.size>5_000_000){result.textContent='Elutasítva: a fájl túl nagy (5 MB felett).';return;}
- try{
-  const obj=JSON.parse(await chosen.text());
-  validatePlanPreview(obj, expectedBoard);
-  validatedPreview=obj;
-  uploadButton.disabled=!msal.getAllAccounts().length;
-  result.textContent='Helyi ellenőrzés sikeres.\nBoard: '+obj.boardId+'\nFeladatok: '+obj.taskCount+'\nVáltozások: '+obj.changeCount+'\nStátusz: TEST_ONLY – nem jóváhagyott, nem feltöltött terv.';
- }catch(e){result.textContent='A fájl nem használható: '+(e instanceof SyntaxError?'érvénytelen JSON.':e.message);}
-});
-
-let uploadBusy=false;
-uploadButton.addEventListener('click',async()=>{
- if(uploadBusy||!validatedPreview)return;
- if(!msal.getAllAccounts().length){uploadResult.textContent='Jelentkezz be előbb.';return;}
- if(!window.confirm('Valóban feltöltöd a TEST_ONLY JSON-t a SharePoint Projects/'+expectedBoard+'/Upload-Tests mappába? A Monday-board nem változik.'))return;
- uploadBusy=true;
- uploadButton.disabled=true;
- uploadResult.textContent='TEST_ONLY JSON feltöltése és visszaellenőrzése...';
- try{
-  const account=msal.getAllAccounts()[0];
-  const auth={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
-  let token;
-  try { token=await msal.acquireTokenSilent(auth); }
-  catch(err){
-   if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(err?.errorCode))throw err;
-   token=await msal.acquireTokenPopup(auth);
-  }
-  const result=await uploadTestPreview({driveId,boardId:expectedBoard,data:validatedPreview,token:token.accessToken,onProgress:message=>{uploadResult.textContent=message;}});
-  uploadResult.textContent='Feltöltés és visszaolvasás sikeres.\nHely: Projects/'+expectedBoard+'/Upload-Tests\nFájl: '+result.filename+'\nMéret: '+result.bytes+' bájt\nSHA-256: '+result.sha256+'\nMonday-board: változatlan.';
- }catch(err){uploadResult.textContent='A TEST_ONLY feltöltés vagy ellenőrzés sikertelen: '+(err?.message||err?.errorCode||'ismeretlen hiba')+'\nHa a feltöltés megtörtént, az Upload-Tests mappában tesztfájl maradhat.';}
- finally{uploadBusy=false;uploadButton.disabled=!validatedPreview||!msal.getAllAccounts().length;}
-});
-
-verifyButton.addEventListener('click',async()=>{
- const account=msal.getAllAccounts()[0];
- if(!account){verifyResult.textContent='Előbb jelentkezz be.';return;}
- verifyButton.disabled=true;
- verifyResult.textContent='Meglévő tesztfájl ellenőrzése a Graph API-n keresztül...';
- try{
-  const auth={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
-  let token;
-  try{token=await msal.acquireTokenSilent(auth);}
-  catch(e){if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;token=await msal.acquireTokenPopup(auth);}
-  const checked=await verifyExistingTest({driveId,boardId:expectedBoard,filename:verifyFilename.value.trim(),token:token.accessToken});
-  verifyResult.textContent='SharePoint fájl igazolva.\\nFájlnév: '+checked.filename+'\\nMéret: '+checked.size+' bájt\\nFájlazonosító: '+checked.id+'\\nTeljes tartalmi egyezés: még nem igazolt (a böngészős letöltést CORS blokkolhatja).';
- }catch(e){verifyResult.textContent='Ellenőrzés sikertelen: '+(e?.message||e?.errorCode||'ismeretlen hiba');}
- finally{verifyButton.disabled=!msal.getAllAccounts().length;}
-});
-
-const downloadedFile=document.querySelector('#downloadedFile');
-const compareButton=document.querySelector('#compareFiles');
-const compareResult=document.querySelector('#compareResult');
-async function hexSha256(bytes){
- const digest=await crypto.subtle.digest('SHA-256',bytes);
- return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
-}
-compareButton.addEventListener('click',async()=>{
- compareResult.textContent='Bájtok és SHA-256 ellenőrzése...';
- try{
-  if(!validatedPreview)throw new Error('Előbb válaszd ki az eredeti TEST_ONLY tervelőnézetet.');
-  const chosen=downloadedFile.files?.[0];
-  if(!chosen)throw new Error('Válaszd ki a SharePointból letöltött JSON-fájlt.');
-  if(chosen.size>5_000_000)throw new Error('A fájl túl nagy.');
-  const filename=verifyFilename.value.trim();
-  if(chosen.name!==filename)throw new Error('A letöltött fájl neve nem egyezik a megadott SharePoint-fájlnévvel.');
-  const expected=new TextEncoder().encode(JSON.stringify(validatedPreview,null,2)+'\n');
-  const actual=new Uint8Array(await chosen.arrayBuffer());
-  const expectedHash=await hexSha256(expected);
-  const actualHash=await hexSha256(actual);
-  if(expectedHash!==actualHash || expected.length!==actual.length)throw new Error('A két fájl SHA-256 ellenőrzőösszege eltér. Eredeti méret: '+expected.length+', letöltött méret: '+actual.length+'.');
-  compareResult.textContent='TELJES TARTALMI EGYEZÉS IGAZOLVA.\nFájlnév: '+filename+'\nMéret: '+actual.length+' bájt\nSHA-256: '+actualHash+'\nA letöltött fájl és az eredeti terv byte-pontosan egyezik. Monday-board: változatlan.';
- }catch(e){compareResult.textContent='Az ellenőrzés nem sikerült: '+(e?.message||'ismeretlen hiba');}
 });
