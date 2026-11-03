@@ -65,7 +65,7 @@ export async function verifyGraphDraftContent({requestText,boardId,driveId,fileN
  }
  if(!response.ok)throw new Error('Preauthenticated SharePoint download HTTP '+response.status);
  const lengthRaw=response.headers?.get?.('content-length');
- if(lengthRaw!==null&&lengthRaw!==undefined&&(!/^\\d+$/.test(lengthRaw)||Number(lengthRaw)>maxBytes))
+ if(lengthRaw!==null&&lengthRaw!==undefined&&(!/^\d+$/.test(lengthRaw)||Number(lengthRaw)>maxBytes))
   throw new Error('SharePoint content exceeds size limit');
  const buffer=await response.arrayBuffer();
  if(buffer.byteLength!==review.draft.bytes||buffer.byteLength>maxBytes)
