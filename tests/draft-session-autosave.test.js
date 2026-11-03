@@ -47,3 +47,25 @@ test('mismatched receipt cannot be treated as verified',async()=>{
  assert.match(session.state().error,/verification/);
  session.stop();
 });
+
+test('a newer revision queued during an active verified save is processed next',async()=>{
+ let release;
+ const hold=new Promise(resolve=>{release=resolve;});
+ const seen=[],session=createSessionDraftAutosave({
+  save:async work=>{
+   seen.push(work.version);
+   if(work.version===5)await hold;
+   return {version:work.version,sha256:work.sha256,verification:'content-sha256-and-etag'};
+  }
+ });
+ session.enable();session.enqueue(draft(5));
+ const saving=session.flush();
+ assert.equal(session.enqueue(draft(6)),true);
+ release();await saving;
+ assert.equal(session.state().savedRevision,5);
+ assert.equal(session.state().pendingRevision,6);
+ await session.flush();
+ assert.deepEqual(seen,[5,6]);
+ assert.equal(session.state().savedRevision,6);
+ session.stop();
+});

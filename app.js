@@ -370,8 +370,9 @@ const sessionAutosave=createSessionDraftAutosave({
   const received=draftHandoff.publishVerifiedReceipt({boardId,version:work.version,
    sha256:saved.sha256,bytes:saved.bytes,name:saved.name,itemId:saved.id,eTag:saved.eTag,
    verification:saved.verification});
-  if(!received)throw Error('A SharePoint mentes igazolt, de a Monday visszajelzese nem lehetett osszeegyeztetni az aktualis DRAFT-tal.');
-  editedResult.textContent='DRAFT v'+work.version+' automatikusan mentve es Graph SHA-256 / eTag visszaellenorizve.\nFajl: '+saved.path+'\nSHA-256: '+saved.sha256;
+  const superseded=editedDraftChecked?.version>work.version;
+  if(!received&&!superseded)throw Error('A SharePoint mentes igazolt, de a Monday visszajelzese nem lehetett osszeegyeztetni az aktualis DRAFT-tal.');
+  editedResult.textContent='DRAFT v'+work.version+' automatikusan mentve es Graph SHA-256 / eTag visszaellenorizve.\nFajl: '+saved.path+'\nSHA-256: '+saved.sha256+(superseded?'\nAz elavult Monday visszajelzest kihagytuk; ujabb DRAFT verzio var mentessel.':'');
   return {...saved,version:work.version};
  },
  onState:state=>{

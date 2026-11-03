@@ -32,7 +32,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    if(closed)return;
    accepted={boardId,version:verified.version,sha256:verified.sha256,
     bytes:verified.bytes,sourceOrigin:event.origin};
-   win.opener?.postMessage({protocol,kind:'received',nonce},event.origin);
+   win.opener?.postMessage({protocol,kind:'received',nonce,version:verified.version,sha256:verified.sha256},event.origin);
    if(kind==='revision')onAcceptedRevision({...verified,content});
   }catch{
    // Invalid data: no ACK, no write authorization.

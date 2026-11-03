@@ -27,7 +27,7 @@ test('receiver acknowledges validated DRAFT, later sends verified receipt to ope
  assert.equal(received.length,0);
  await f.send(transferred(f));
  assert.deepEqual(received,[{content:'some DRAFT json',boardId,sourceOrigin:'https://monday.example.com'}]);
- assert.equal(f.posts.at(-1).data.kind,'received');
+ assert.deepEqual(f.posts.at(-1).data,{protocol,kind:'received',nonce,version:5,sha256:hash});
  assert.equal(receiver.publishVerifiedReceipt(save()),true);
  assert.equal(f.posts.at(-1).data.kind,'verified');
  assert.equal(f.posts.at(-1).origin,'https://monday.example.com');
@@ -65,6 +65,7 @@ test('receiver can accept newer revision and will not report an old verified res
  await f.send({source:f.opener,origin:'https://monday.example.com',data:{
   protocol,kind:'revision',nonce,boardId,content:'new draft'}});
  assert.deepEqual(queued,[6]);
+ assert.deepEqual(f.posts.at(-1).data,{protocol,kind:'received',nonce,version:6,sha256:'b'.repeat(64)});
  assert.equal(receiver.publishVerifiedReceipt(save()),false);
  assert.equal(receiver.publishVerifiedReceipt(save({version:6,sha256:'b'.repeat(64),bytes:2000,
   name:'draft-v6-abcdefgh-12345678.json'})),true);
