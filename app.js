@@ -1,3 +1,4 @@
+import {verifyGraphDraftContent} from './graph-draft-content-verifier.js';
 import {prepareSharePointReviewEvidence} from './sharepoint-review-evidence.js';
 import {verifyEditedDraftDownload} from './edited-draft-verifier.js';
 import {validateEditedDraft} from './edited-draft-validator.js';
@@ -185,6 +186,35 @@ document.querySelector('#restoreDraftFile').addEventListener('change',async even
   preview.append(list);
   if(draft.taskCount>20)preview.append(document.createTextNode('Az elonezet az elso 20 feladatot mutatja.'));
  }catch(err){output.textContent='DRAFT visszatoltes sikertelen: '+(err?.message||'ismeretlen');}
+});
+let directGraphEvidence=null;
+const graphResultOutput=document.querySelector('#graphDraftContentResult');
+const graphEvidenceExport=document.querySelector('#exportGraphDraftEvidence');
+document.querySelector('#verifyGraphDraftContent').addEventListener('click',async()=>{
+ directGraphEvidence=null;graphEvidenceExport.disabled=true;graphResultOutput.textContent='Graph tartalom ellenorzese folyamatban...';
+ try{
+  const account=msal.getAllAccounts()[0];
+  if(!account)throw new Error('Microsoft bejelentkezes szukseges.');
+  const file=document.querySelector('#graphReviewRequest').files?.[0];
+  if(!file||file.size>1_000_000)throw new Error('Valassz REVIEW REQUEST JSON fajlt.');
+  const fileName=document.querySelector('#graphDraftFilename').value.trim();
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+  const getAccessToken=async()=>{try{return (await msal.acquireTokenSilent(request)).accessToken;}
+   catch(e){if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;return (await msal.acquireTokenPopup(request)).accessToken;}};
+  directGraphEvidence=await verifyGraphDraftContent({requestText:await file.text(),boardId:projectBoard.value.trim(),driveId,fileName,getAccessToken});
+  graphResultOutput.textContent='KOZVETLEN GRAPH SHA-256 EGYEZES: v'+directGraphEvidence.version+
+   '; '+directGraphEvidence.bytes+' byte; SHA-256: '+directGraphEvidence.sha256+
+   '. A SharePoint eTag ujraellenorizve. Jovahagyas es Monday-szinkron tiltva.';
+  graphEvidenceExport.disabled=false;
+ }catch(e){graphResultOutput.textContent='Kozvetlen Graph-ellenorzes sikertelen: '+(e?.message||e)+'. Nem keletkezett hitelesitett tartalmi bizonyitek.';}
+});
+graphEvidenceExport.addEventListener('click',()=>{
+ if(!directGraphEvidence)return;
+ const url=URL.createObjectURL(new Blob([JSON.stringify(directGraphEvidence,null,2)],{type:'application/json'}));
+ try{const a=document.createElement('a');a.href=url;
+  a.download='draft-review-evidence-graph-'+directGraphEvidence.boardId+'-v'+directGraphEvidence.version+'.json';
+  document.body.append(a);a.click();a.remove();}
+ finally{setTimeout(()=>URL.revokeObjectURL(url),30000);}
 });
 let reviewEvidence=null;
 const reviewEvidenceResult=document.querySelector('#sharePointReviewEvidenceResult');
