@@ -27,6 +27,11 @@ function transport(text,{etag='v1',content=text,metadataSize=new TextEncoder().e
     arrayBuffer:async()=>new TextEncoder().encode(content).buffer};
   }
   if(!url.startsWith('https://graph.microsoft.com/'))throw Error('Unexpected network request');
+  if(url.includes('/items/')){
+   return {ok:true,json:async()=>({id:'item-123',name:fileName,size:metadataSize,file:{mimeType:'application/json'},
+    eTag:typeof etag==='function'?etag(metadataReads):etag,parentReference:{driveId},
+    '@microsoft.graph.downloadUrl':downloadUrl})};
+  }
   metadataReads++;
   return {ok:true,json:async()=>({id:'item-123',name:fileName,size:metadataSize,file:{mimeType:'application/json'},
    eTag:typeof etag==='function'?etag(metadataReads):etag,parentReference:{driveId},
@@ -43,13 +48,14 @@ test('preauthenticated SharePoint URL is used without Graph Authorization or coo
  assert.equal(result.eligibleForApproval,false);
  assert.equal(result.mondaySyncAllowed,false);
  assert.equal(t.reads(),2);
- assert.equal(t.calls.length,3);
- assert.match(t.calls[0].url,/downloadUrl/);
+ assert.equal(t.calls.length,4);
+ assert.match(t.calls[0].url,/Draft-Plans/);
+ assert.match(t.calls[1].url,/\/items\/item-123$/);
  assert.equal(t.calls[0].options.headers.Authorization,'Bearer graph-access-token');
- assert.equal(t.calls[1].url,temporaryUrl);
- assert.equal(t.calls[1].options.headers,undefined);
- assert.equal(t.calls[1].options.credentials,'omit');
- assert.equal(t.calls[1].options.referrerPolicy,'no-referrer');
+ assert.equal(t.calls[2].url,temporaryUrl);
+ assert.equal(t.calls[2].options.headers,undefined);
+ assert.equal(t.calls[2].options.credentials,'omit');
+ assert.equal(t.calls[2].options.referrerPolicy,'no-referrer');
  assert.ok(t.calls.every(c=>!c.url.includes('/content')));
 });
 test('mismatched size or CORS failure cannot generate evidence',async()=>{
