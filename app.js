@@ -1,3 +1,4 @@
+import {checkApproverPreflight} from './approver-identity-preflight.js';
 import {verifyGraphDraftContent} from './graph-draft-content-verifier.js';
 import {prepareSharePointReviewEvidence} from './sharepoint-review-evidence.js';
 import {verifyEditedDraftDownload} from './edited-draft-verifier.js';
@@ -186,6 +187,32 @@ document.querySelector('#restoreDraftFile').addEventListener('change',async even
   preview.append(list);
   if(draft.taskCount>20)preview.append(document.createTextNode('Az elonezet az elso 20 feladatot mutatja.'));
  }catch(err){output.textContent='DRAFT visszatoltes sikertelen: '+(err?.message||'ismeretlen');}
+});
+// A Microsoft user identity is independently read from /me, not inferred
+// from editable user names or an exported evidence JSON.
+const approverGroupId=null; // Must be fixed by trusted deployment configuration.
+const approverIdentityResult=document.querySelector('#approverIdentityResult');
+document.querySelector('#checkApproverIdentity').addEventListener('click',async()=>{
+ approverIdentityResult.textContent='Microsoft-azonossag ellenorzese...';
+ try{
+  const account=msal.getAllAccounts()[0];
+  if(!account)throw new Error('Microsoft-bejelentkezes szukseges.');
+  const request={scopes:['User.Read'],account,redirectUri};
+  const getAccessToken=async()=>{
+   try{return (await msal.acquireTokenSilent(request)).accessToken;}
+   catch(e){
+    if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;
+    return (await msal.acquireTokenPopup(request)).accessToken;
+   }
+  };
+  const result=await checkApproverPreflight({getAccessToken,tenantId,
+   accountTenantId:account.tenantId,approverGroupId});
+  approverIdentityResult.textContent='Entra-azonossag ellenorizve: '+result.identity.displayName+
+   ' ('+result.identity.userPrincipalName+'); objektumazonosito: '+result.identity.objectId+
+   '. Jovahagyoi csoport: '+result.checks.approverGroupMembership+
+   '. Jogosultsag nem igazolt. Jovahagyas es Monday-szinkron tovabbra is tiltva.';
+ }catch(e){approverIdentityResult.textContent='Entra-azonositas sikertelen: '+(e?.message||e)+
+  '. Jovahagyas es Monday-szinkron tovabbra is tiltva.';}
 });
 let directGraphEvidence=null;
 const graphResultOutput=document.querySelector('#graphDraftContentResult');
