@@ -379,8 +379,8 @@ editedSave.addEventListener('click',async()=>{
   };
   const versionId='v'+valid.version+'-'+Date.now().toString(36)+'-'+crypto.randomUUID().slice(0,12);
   const saved=await saveDraftTransfer({editedDraftText,boardId,driveId,getAccessToken,versionId});
-  editedResult.textContent='DRAFT v'+valid.version+' mentve: '+saved.path+'; '+saved.bytes+' byte; SHA-256: '+saved.sha256+'. Metaadat-ellenorzes kesz. Teljes tartalmi visszaolvasas kulon szukseges.';
- }catch(e){editedResult.textContent='Mentes hibas: '+(e.message||e)+'. Ellenorizd a SharePoint mappat ujraprobalas elott.';}
+  editedResult.textContent='DRAFT v'+valid.version+' SharePointra mentve es TELJES TARTALMI EGYEZES IGAZOLVA.\nFajl: '+saved.path+'\nMeret: '+saved.bytes+' byte\nSHA-256: '+saved.sha256+'\neTag: '+saved.eTag+'\nVisszaolvasott tartalom, fajlazonosito es stabil SharePoint metadata ellenorizve. Nem jovahagyott DRAFT; Monday-board valtozatlan.';
+ }catch(e){editedResult.textContent=e.uploaded?'DRAFT FELTOLTVE, DE NEM IGAZOLT!\nFajl: '+e.uploaded.path+'\nSHA-256 (eredeti): '+e.uploaded.sha256+'\n'+(e.message||e):'Mentes hibas: '+(e.message||e)+'. Ellenorizd a SharePoint mappat ujraprobalas elott.';}
  finally{editedBusy=false;editedSave.disabled=!editedDraftText||!msal.getAllAccounts().length;}
 });
 let draftSaveBusy=false;
