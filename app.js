@@ -215,10 +215,12 @@ document.querySelector('#checkApproverIdentity').addEventListener('click',async(
   '. Jovahagyas es Monday-szinkron tovabbra is tiltva.';}
 });
 let directGraphEvidence=null;
+let verifiedGraphDraftText=null;
+const graphDraftExport=document.querySelector('#exportVerifiedGraphDraft');
 const graphResultOutput=document.querySelector('#graphDraftContentResult');
 const graphEvidenceExport=document.querySelector('#exportGraphDraftEvidence');
 document.querySelector('#verifyGraphDraftContent').addEventListener('click',async()=>{
- directGraphEvidence=null;graphEvidenceExport.disabled=true;graphResultOutput.textContent='Graph tartalom ellenorzese folyamatban...';
+ directGraphEvidence=null;verifiedGraphDraftText=null;graphEvidenceExport.disabled=true;graphDraftExport.disabled=true;graphResultOutput.textContent='Graph tartalom ellenorzese folyamatban...';
  try{
   const account=msal.getAllAccounts()[0];
   if(!account)throw new Error('Microsoft bejelentkezes szukseges.');
@@ -228,12 +230,21 @@ document.querySelector('#verifyGraphDraftContent').addEventListener('click',asyn
   const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
   const getAccessToken=async()=>{try{return (await msal.acquireTokenSilent(request)).accessToken;}
    catch(e){if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;return (await msal.acquireTokenPopup(request)).accessToken;}};
-  directGraphEvidence=await verifyGraphDraftContent({requestText:await file.text(),boardId:projectBoard.value.trim(),driveId,fileName,getAccessToken});
+  directGraphEvidence=await verifyGraphDraftContent({requestText:await file.text(),boardId:projectBoard.value.trim(),driveId,fileName,getAccessToken,onVerifiedDraft:text=>{verifiedGraphDraftText=text;}});
   graphResultOutput.textContent='KOZVETLEN GRAPH SHA-256 EGYEZES: v'+directGraphEvidence.version+
    '; '+directGraphEvidence.bytes+' byte; SHA-256: '+directGraphEvidence.sha256+
    '. A SharePoint eTag ujraellenorizve. Jovahagyas es Monday-szinkron tiltva.';
-  graphEvidenceExport.disabled=false;
+  graphEvidenceExport.disabled=false;graphDraftExport.disabled=false;
  }catch(e){graphResultOutput.textContent='Kozvetlen Graph-ellenorzes sikertelen: '+(e?.message||e)+'. Nem keletkezett hitelesitett tartalmi bizonyitek.';}
+});
+graphDraftExport.addEventListener('click',()=>{
+ if(!directGraphEvidence||!verifiedGraphDraftText)return;
+ // This export is the exact content retrieved from SharePoint, with unchanged UTF-8 text.
+ const url=URL.createObjectURL(new Blob([verifiedGraphDraftText],{type:'application/json;charset=utf-8'}));
+ try{const a=document.createElement('a');a.href=url;
+  a.download=directGraphEvidence.sharePoint.name;
+  document.body.append(a);a.click();a.remove();}
+ finally{setTimeout(()=>URL.revokeObjectURL(url),30000);}
 });
 graphEvidenceExport.addEventListener('click',()=>{
  if(!directGraphEvidence)return;
