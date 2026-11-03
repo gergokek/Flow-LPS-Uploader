@@ -350,7 +350,7 @@ editedFile.addEventListener('change',async()=>{
 });
 // One-time browser handoff from Monday. The received JSON is untrusted input:
  // validate it locally and require a separate Microsoft-authenticated save click.
-attachDraftHandoff({onDraft:async({content,boardId})=>{
+const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
  try{
@@ -361,6 +361,7 @@ attachDraftHandoff({onDraft:async({content,boardId})=>{
   editedStatus.textContent='DRAFT v'+valid.version+' atveve a Monday TEST-bol: '+valid.taskCount+
    ' feladat; SHA-256: '+valid.sha256+'. SharePoint-mentes MEG NEM tortent. Bejelentkezes es kulon mentes szukseges.';
   document.querySelector('#editedDraftFile')?.closest('section')?.scrollIntoView({block:'start'});
+  return {boardId:valid.boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
  }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
 }});
 editedSave.addEventListener('click',async()=>{
@@ -379,6 +380,9 @@ editedSave.addEventListener('click',async()=>{
   };
   const versionId='v'+valid.version+'-'+Date.now().toString(36)+'-'+crypto.randomUUID().slice(0,12);
   const saved=await saveDraftTransfer({editedDraftText,boardId,driveId,getAccessToken,versionId});
+  draftHandoff.publishVerifiedReceipt({boardId,version:valid.version,sha256:saved.sha256,
+   bytes:saved.bytes,name:saved.name,itemId:saved.id,eTag:saved.eTag,
+   verification:saved.verification});
   editedResult.textContent='DRAFT v'+valid.version+' SharePointra mentve es TELJES TARTALMI EGYEZES IGAZOLVA.\nFajl: '+saved.path+'\nMeret: '+saved.bytes+' byte\nSHA-256: '+saved.sha256+'\neTag: '+saved.eTag+'\nVisszaolvasott tartalom, fajlazonosito es stabil SharePoint metadata ellenorizve. Nem jovahagyott DRAFT; Monday-board valtozatlan.';
  }catch(e){editedResult.textContent=e.uploaded?'DRAFT FELTOLTVE, DE NEM IGAZOLT!\nFajl: '+e.uploaded.path+'\nSHA-256 (eredeti): '+e.uploaded.sha256+'\n'+(e.message||e):'Mentes hibas: '+(e.message||e)+'. Ellenorizd a SharePoint mappat ujraprobalas elott.';}
  finally{editedBusy=false;editedSave.disabled=!editedDraftText||!msal.getAllAccounts().length;}
