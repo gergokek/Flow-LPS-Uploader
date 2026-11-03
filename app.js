@@ -1,3 +1,4 @@
+import {prepareSharePointReviewEvidence} from './sharepoint-review-evidence.js';
 import {verifyEditedDraftDownload} from './edited-draft-verifier.js';
 import {validateEditedDraft} from './edited-draft-validator.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
@@ -184,6 +185,38 @@ document.querySelector('#restoreDraftFile').addEventListener('change',async even
   preview.append(list);
   if(draft.taskCount>20)preview.append(document.createTextNode('Az elonezet az elso 20 feladatot mutatja.'));
  }catch(err){output.textContent='DRAFT visszatoltes sikertelen: '+(err?.message||'ismeretlen');}
+});
+let reviewEvidence=null;
+const reviewEvidenceResult=document.querySelector('#sharePointReviewEvidenceResult');
+const exportEvidence=document.querySelector('#exportSharePointReviewEvidence');
+document.querySelector('#checkSharePointReviewEvidence').addEventListener('click',async()=>{
+ reviewEvidence=null;exportEvidence.disabled=true;reviewEvidenceResult.textContent='SharePoint bizonyitek ellenorzese...';
+ try{
+  const account=msal.getAllAccounts()[0];
+  if(!account)throw new Error('Microsoft-bejelentkezes szukseges.');
+  const requestFile=document.querySelector('#evidenceReviewFile').files?.[0];
+  const draftFile=document.querySelector('#evidenceDraftFile').files?.[0];
+  if(!requestFile||!draftFile||requestFile.size>1_000_000||draftFile.size>5_000_000)throw new Error('Valassz REVIEW REQUEST es DRAFT JSON fajlokat.');
+  const boardId=projectBoard.value.trim();
+  const fileName=document.querySelector('#evidenceSharePointName').value.trim();
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+  const getAccessToken=async()=>{try{return (await msal.acquireTokenSilent(request)).accessToken;}
+   catch(e){if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;return (await msal.acquireTokenPopup(request)).accessToken;}};
+  reviewEvidence=await prepareSharePointReviewEvidence({requestText:await requestFile.text(),
+   draftBytes:new Uint8Array(await draftFile.arrayBuffer()),boardId,driveId,fileName,getAccessToken});
+  reviewEvidenceResult.textContent='Ellenorzes kesz: v'+reviewEvidence.version+'; '+reviewEvidence.taskCount+
+   ' feladat; SHA-256: '+reviewEvidence.sha256+'; SharePoint item: '+reviewEvidence.sharePoint.itemId+
+   '. A letoltes eredete nem tanusitott; jovahagyas tovabbra is tiltva.';
+  exportEvidence.disabled=false;
+ }catch(e){reviewEvidenceResult.textContent='Ellenorzes sikertelen: '+(e?.message||e);}
+});
+exportEvidence.addEventListener('click',()=>{
+ if(!reviewEvidence)return;
+ const url=URL.createObjectURL(new Blob([JSON.stringify(reviewEvidence,null,2)],{type:'application/json'}));
+ try{const a=document.createElement('a');a.href=url;
+  a.download='draft-review-evidence-'+reviewEvidence.boardId+'-v'+reviewEvidence.version+'.json';
+  document.body.append(a);a.click();a.remove();
+ }finally{setTimeout(()=>URL.revokeObjectURL(url),30000);}
 });
 let editedDraftText=null,editedDraftChecked=null,editedBusy=false;
 const editedDownloaded=document.querySelector('#editedDownloadedFile');
