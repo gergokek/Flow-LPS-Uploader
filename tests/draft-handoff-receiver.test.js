@@ -55,3 +55,19 @@ test('invalid source or DRAFT validation failure never sends ACK or receipt',asy
  const absent=fixture('#draft-handoff=wrong');
  assert.equal(attachDraftHandoff({win:absent.win,onDraft:async()=>valid()}).active,false);
 });
+
+test('receiver can accept newer revision and will not report an old verified result',async()=>{
+ const f=fixture(),queued=[];
+ const receiver=attachDraftHandoff({win:f.win,onDraft:async()=>valid(),
+  onRevision:async({boardId})=>({boardId,version:6,sha256:'b'.repeat(64),bytes:2000}),
+  onAcceptedRevision:x=>queued.push(x.version)});
+ await f.send(transferred(f));
+ await f.send({source:f.opener,origin:'https://monday.example.com',data:{
+  protocol,kind:'revision',nonce,boardId,content:'new draft'}});
+ assert.deepEqual(queued,[6]);
+ assert.equal(receiver.publishVerifiedReceipt(save()),false);
+ assert.equal(receiver.publishVerifiedReceipt(save({version:6,sha256:'b'.repeat(64),bytes:2000,
+  name:'draft-v6-abcdefgh-12345678.json'})),true);
+ assert.equal(f.posts.at(-1).data.receipt.version,6);
+ receiver.close();
+});
