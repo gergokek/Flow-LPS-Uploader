@@ -28,7 +28,7 @@ function reviewData(json,boardId){
  return r;
 }
 
-export async function verifyGraphDraftContent({requestText,boardId,driveId,fileName,getAccessToken,fetcher=fetch}={}){
+export async function verifyGraphDraftContent({requestText,boardId,driveId,fileName,getAccessToken,fetcher=fetch,onVerifiedDraft}={}){
  const review=reviewData(requestText,boardId),version=review.draft.version;
  const match=filenamePattern.exec(fileName||'');
  if(!match||Number(match[1])!==version||!/^b![-_A-Za-z0-9]+$/.test(driveId||'')||
@@ -86,6 +86,11 @@ export async function verifyGraphDraftContent({requestText,boardId,driveId,fileN
  const second=await requestMetadata();
  if(first.id!==second.id||first.eTag!==second.eTag||first.size!==second.size)
   throw new Error('SharePoint file changed during content verification');
+ // The bytes are released to the caller only after SHA-256 and both metadata reads match.
+ if(onVerifiedDraft!==undefined){
+  if(typeof onVerifiedDraft!=='function')throw new Error('Invalid verified DRAFT consumer');
+  onVerifiedDraft(text);
+ }
  return Object.freeze({
   schemaVersion:1,format:'flow-lps-sharepoint-review-evidence',
   status:'EVIDENCE_ONLY',isApprovedPlan:false,mondaySyncAllowed:false,
