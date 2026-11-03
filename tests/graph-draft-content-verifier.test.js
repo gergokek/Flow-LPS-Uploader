@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {verifyGraphDraftContent} from '../graph-draft-content-verifier.js';
 import {validateEditedDraft} from '../edited-draft-validator.js';
+
 const stable=v=>Array.isArray(v)?'['+v.map(stable).join(',')+']':v&&typeof v==='object'?'{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+stable(v[k])).join(',')+'}':JSON.stringify(v??null);
 const boardId='5107075373',driveId='b!testdrive',fileName='draft-v2-mw0gh0xt-befdfc56-ad4.json';
+const temporaryUrl='https://hanoplan.sharepoint.com/_layouts/15/download.aspx?token=preauth';
 async function fixture(){
  const base={id:boardId,tasks:[{id:'101',name:'Example'}]};
  const draft={schemaVersion:1,format:'flow-lps-draft',status:'DRAFT',isApprovedPlan:false,boardId,base,
@@ -14,39 +16,53 @@ async function fixture(){
  return {text,requestText:JSON.stringify({schemaVersion:1,format:'flow-lps-draft-review-request',status:'REVIEW_REQUEST',
  isApprovedPlan:false,approvalDecision:null,mondaySyncAllowed:false,draft:{...validated}})};
 }
-function transport(text,{etag='v1',content=text,metadataSize=new TextEncoder().encode(text).length,throwContent=false}={}){
+function transport(text,{etag='v1',content=text,metadataSize=new TextEncoder().encode(text).length,downloadUrl=temporaryUrl,throwDownload=false}={}){
  let metadataReads=0;
+ const calls=[];
  return {fetcher:async(url,options)=>{
-  if(url.includes('/content')){
-   if(throwContent)throw Error('CORS blocked');
-   return {ok:true,headers:{get:()=>String(new TextEncoder().encode(content).length)},arrayBuffer:async()=>new TextEncoder().encode(content).buffer};
+  calls.push({url,options});
+  if(url===temporaryUrl || url===downloadUrl){
+   if(throwDownload)throw Error('CORS blocked');
+   return {ok:true,headers:{get:()=>String(new TextEncoder().encode(content).length)},
+    arrayBuffer:async()=>new TextEncoder().encode(content).buffer};
   }
+  if(!url.startsWith('https://graph.microsoft.com/'))throw Error('Unexpected network request');
   metadataReads++;
   return {ok:true,json:async()=>({id:'item-123',name:fileName,size:metadataSize,file:{mimeType:'application/json'},
-   eTag:typeof etag==='function'?etag(metadataReads):etag,parentReference:{driveId}})};
- },reads:()=>metadataReads};
+   eTag:typeof etag==='function'?etag(metadataReads):etag,parentReference:{driveId},
+   '@microsoft.graph.downloadUrl':downloadUrl})};
+ },reads:()=>metadataReads,calls};
 }
-test('direct Graph file bytes matching the REVIEW REQUEST yield evidence but not approval',async()=>{
+const verify=(f,t)=>verifyGraphDraftContent({requestText:f.requestText,boardId,driveId,fileName,
+ getAccessToken:async()=> 'graph-access-token',fetcher:t.fetcher});
+test('preauthenticated SharePoint URL is used without Graph Authorization or cookies',async()=>{
  const f=await fixture(),t=transport(f.text);
- const result=await verifyGraphDraftContent({requestText:f.requestText,boardId,driveId,fileName,getAccessToken:async()=> 'token',fetcher:t.fetcher});
+ const result=await verify(f,t);
  assert.equal(result.checks.graphFileContent,'passed');
  assert.equal(result.checks.downloadProvenance,'graph-authenticated-response');
- assert.equal(result.checks.approverIdentity,'not-verified');
  assert.equal(result.eligibleForApproval,false);
  assert.equal(result.mondaySyncAllowed,false);
  assert.equal(t.reads(),2);
+ assert.equal(t.calls.length,3);
+ assert.match(t.calls[0].url,/downloadUrl/);
+ assert.equal(t.calls[0].options.headers.Authorization,'Bearer graph-access-token');
+ assert.equal(t.calls[1].url,temporaryUrl);
+ assert.equal(t.calls[1].options.headers,undefined);
+ assert.equal(t.calls[1].options.credentials,'omit');
+ assert.equal(t.calls[1].options.referrerPolicy,'no-referrer');
+ assert.ok(t.calls.every(c=>!c.url.includes('/content')));
 });
-test('fails closed when bytes differ or browser blocks Graph content read',async()=>{
+test('mismatched size or CORS failure cannot generate evidence',async()=>{
  const f=await fixture();
- await assert.rejects(()=>verifyGraphDraftContent({requestText:f.requestText,boardId,driveId,fileName,getAccessToken:async()=> 'token',
-  fetcher:transport(f.text,{content:f.text+' '}).fetcher}),/size mismatch/);
- await assert.rejects(()=>verifyGraphDraftContent({requestText:f.requestText,boardId,driveId,fileName,getAccessToken:async()=> 'token',
-  fetcher:transport(f.text,{throwContent:true}).fetcher}),/CORS/);
+ await assert.rejects(()=>verify(f,transport(f.text,{content:f.text+' '})),/size mismatch/);
+ await assert.rejects(()=>verify(f,transport(f.text,{throwDownload:true})),/CORS/);
 });
-test('rejects SharePoint version change and wrong filename or board',async()=>{
- const f=await fixture(),t=transport(f.text,{etag:n=>n===1?'v1':'v2'});
- await assert.rejects(()=>verifyGraphDraftContent({requestText:f.requestText,boardId,driveId,fileName,getAccessToken:async()=> 'token',
-  fetcher:t.fetcher}),/changed during/);
- await assert.rejects(()=>verifyGraphDraftContent({requestText:f.requestText,boardId,driveId,fileName:'draft-v1-abcdef123456.json',
-  getAccessToken:async()=> 'token',fetcher:transport(f.text).fetcher}),/filename/);
+test('rejects changed eTag, wrong version and untrusted preauthenticated host',async()=>{
+ const f=await fixture();
+ await assert.rejects(()=>verify(f,transport(f.text,{etag:n=>n===1?'v1':'v2'})),/changed during/);
+ await assert.rejects(()=>verifyGraphDraftContent({requestText:f.requestText,boardId,driveId,
+  fileName:'draft-v1-abcdef123456.json',getAccessToken:async()=> 'token',
+  fetcher:transport(f.text).fetcher}),/filename/);
+ await assert.rejects(()=>verify(f,transport(f.text,{downloadUrl:'https://example.org/untrusted'})),/untrusted/);
+ await assert.rejects(()=>verify(f,transport(f.text,{downloadUrl:'http://127.0.0.1/internal'})),/untrusted/);
 });
