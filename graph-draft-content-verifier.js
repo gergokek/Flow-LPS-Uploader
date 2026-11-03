@@ -40,7 +40,7 @@ export async function verifyGraphDraftContent({requestText,boardId,driveId,fileN
  const path='Projects/'+boardId+'/Draft-Plans/'+fileName;
  const rootUrl=graphRoot+encodeURIComponent(driveId);
  const pathUrl=rootUrl+'/root:/'+path.split('/').map(encodeURIComponent).join('/');
- const metadataUrl=pathUrl+'?$select=id,name,size,file,parentReference,eTag,lastModifiedDateTime,%40microsoft.graph.downloadUrl';
+ const metadataUrl=pathUrl+'?$select=id,name,size,file,parentReference,eTag,lastModifiedDateTime';
  const requestMetadata=async()=>{
   const response=await fetcher(metadataUrl,{method:'GET',cache:'no-store',redirect:'error',headers:auth});
   if(!response.ok)throw new Error('Graph metadata HTTP '+response.status);
@@ -55,7 +55,15 @@ export async function verifyGraphDraftContent({requestText,boardId,driveId,fileN
  // Graph /content triggers an authenticated 302 redirect that browsers cannot
  // follow during CORS preflight. Use the short-lived, preauthenticated URL instead.
  // Never forward the Microsoft Graph bearer token or cookies to the download host.
- const downloadUrl=safeDownloadUrl(first['@microsoft.graph.downloadUrl']);
+ const itemUrl=rootUrl+'/items/'+encodeURIComponent(first.id);
+ const itemResponse=await fetcher(itemUrl,{method:'GET',cache:'no-store',redirect:'error',headers:auth});
+ if(!itemResponse.ok)throw new Error('Graph driveItem download URL request HTTP '+itemResponse.status);
+ const downloadItem=await itemResponse.json();
+ if(downloadItem?.id!==first.id||downloadItem.name!==fileName||
+    downloadItem.size!==first.size||downloadItem.eTag!==first.eTag||
+    downloadItem.parentReference?.driveId!==driveId||!downloadItem.file)
+  throw new Error('Graph driveItem differs from SharePoint metadata');
+ const downloadUrl=safeDownloadUrl(downloadItem['@microsoft.graph.downloadUrl']);
  let response;
  try{
   response=await fetcher(downloadUrl,{method:'GET',mode:'cors',cache:'no-store',
