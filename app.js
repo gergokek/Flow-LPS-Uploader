@@ -1,3 +1,4 @@
+import {attachDraftHandoff} from './draft-handoff-receiver.js';
 import {listStoredDraftVersions,loadStoredDraftVersion} from './sharepoint-version-picker.js';
 import {checkApproverPreflight} from './approver-identity-preflight.js';
 import {verifyGraphDraftContent} from './graph-draft-content-verifier.js';
@@ -383,6 +384,21 @@ editedFile.addEventListener('change',async()=>{
   editedSave.disabled=!msal.getAllAccounts().length;
  }catch(e){editedStatus.textContent='Ellenorzes sikertelen: '+e.message;}
 });
+// One-time browser handoff from Monday. The received JSON is untrusted input:
+ // validate it locally and require a separate Microsoft-authenticated save click.
+attachDraftHandoff({onDraft:async({content,boardId})=>{
+ editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
+ editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
+ try{
+  if(boardId!==projectBoard.value.trim())throw Error('A Monday es az Uploader board-azonositoja elter.');
+  const valid=await validateEditedDraft(content,boardId);
+  editedDraftText=content;editedDraftChecked=valid;
+  editedSave.disabled=!msal.getAllAccounts().length;
+  editedStatus.textContent='DRAFT v'+valid.version+' atveve a Monday TEST-bol: '+valid.taskCount+
+   ' feladat; SHA-256: '+valid.sha256+'. SharePoint-mentes MEG NEM tortent. Bejelentkezes es kulon mentes szukseges.';
+  document.querySelector('#editedDraftFile')?.closest('section')?.scrollIntoView({block:'start'});
+ }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
+}});
 editedSave.addEventListener('click',async()=>{
  if(editedBusy||!editedDraftText||!editedDraftChecked)return;
  const boardId=projectBoard.value.trim(),account=msal.getAllAccounts()[0];
