@@ -72,3 +72,25 @@ test('rejects changed eTag, wrong version and untrusted preauthenticated host',a
  await assert.rejects(()=>verify(f,transport(f.text,{downloadUrl:'https://example.org/untrusted'})),/untrusted/);
  await assert.rejects(()=>verify(f,transport(f.text,{downloadUrl:'http://127.0.0.1/internal'})),/untrusted/);
 });
+
+test('returns exact SharePoint bytes to TEST importer only after full verification',async()=>{
+ const f=await fixture(),t=transport(f.text);
+ let content=null;
+ const evidence=await verifyGraphDraftContent({requestText:f.requestText,boardId,driveId,fileName,
+  getAccessToken:async()=> 'graph-access-token',fetcher:t.fetcher,
+  onVerifiedDraft:text=>{content=text;}});
+ assert.equal(content,f.text);
+ assert.equal(evidence.sharePoint.name,fileName);
+ assert.equal(evidence.checks.graphFileContent,'passed');
+ assert.equal(Object.prototype.hasOwnProperty.call(evidence,'verifiedDraftText'),false);
+});
+test('never releases DRAFT on corrupted content, eTag conflict or unauthorized host',async()=>{
+ const f=await fixture();
+ for(const options of [{content:f.text+' '},{etag:n=>n===1?'v1':'v2'},{downloadUrl:'https://attacker.example.com/file'}]){
+  let released=false;
+  await assert.rejects(()=>verifyGraphDraftContent({requestText:f.requestText,boardId,driveId,fileName,
+   getAccessToken:async()=> 'graph-access-token',fetcher:transport(f.text,options).fetcher,
+   onVerifiedDraft:()=>{released=true;}}));
+  assert.equal(released,false);
+ }
+});
