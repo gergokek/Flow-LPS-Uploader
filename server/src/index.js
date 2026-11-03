@@ -1,5 +1,5 @@
 import {app} from '@azure/functions';
-import {DefaultAzureCredential} from '@azure/identity';
+import {ManagedIdentityCredential} from '@azure/identity';
 import {createRemoteJWKSet,jwtVerify} from 'jose';
 import {verifyStoredDraft} from './verify-stored-draft.js';
 
@@ -11,7 +11,7 @@ const boardId=process.env.FLOW_BOARD_ID;
 const configured=!!(tenantId&&audience&&expectedOid&&driveId&&boardId);
 const issuer=configured?'https://login.microsoftonline.com/'+tenantId+'/v2.0':null;
 const jwks=configured?createRemoteJWKSet(new URL('https://login.microsoftonline.com/'+tenantId+'/discovery/v2.0/keys')):null;
-const credential=new DefaultAzureCredential();
+const credential=new ManagedIdentityCredential();
 
 async function authorize(headers){
  const value=headers.get('authorization')||'';
