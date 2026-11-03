@@ -33,6 +33,8 @@ test('receiver acknowledges validated DRAFT, later sends verified receipt to ope
  assert.equal(f.posts.at(-1).origin,'https://monday.example.com');
  assert.deepEqual(f.posts.at(-1).data.receipt,{...save(),isApprovedPlan:false,mondaySyncAllowed:false});
  assert.equal(receiver.publishVerifiedReceipt(save()),false);
+ assert.equal(f.active(),true); // Session remains open for opted-in later revisions.
+ receiver.close();
  assert.equal(f.active(),false);
 });
 test('receipt refused for wrong board, revision, hash, bytes or unverified upload',async()=>{
