@@ -9,6 +9,11 @@ test('Uploader shows confirmation as a review intent and offers no approval writ
   readFile(new URL('../draft-handoff-receiver.js',import.meta.url),'utf8')
  ]);
  assert.match(html,/id="finalizationIntentResult"/);
+ assert.match(html,/id="createApprovedPlan" disabled/);
+ assert.match(html,/id="approvedPlanSaveResult"/);
+ assert.match(app,/mountApprovedPlanAction/);
+ assert.match(app,/approvedPlanAction\.receive\(intent\)/);
+ assert.match(app,/approvedPlanAction\.clear\(\)/);
  assert.match(html,/jóváhagyott terv/);
  assert.match(app,/savedReview\.currentProof\(\)/);
  assert.match(app,/onFinalizationIntent:async/);
