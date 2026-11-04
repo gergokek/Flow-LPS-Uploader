@@ -11,6 +11,7 @@ async function fixture(){
  const cp={
   schemaVersion:1,format:'flow-lps-sync-checkpoint',
   status:'PREPARED_NO_WRITES',boardId,
+  mondaySourceFingerprint:'some-source-fingerprint',
   approvedPlan:{sha256:approvedHash},
   writeAuthorization:'NOT_GRANTED',
   progress:{cursor:0,mondayWrites:0,inFlight:null,verifiedTaskIds:[]}
