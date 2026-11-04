@@ -178,6 +178,9 @@ export async function saveApprovedPlan({
   status:'APPROVED_PLAN_STORED',boardId,version:summary.version,
   name,id:first.id,eTag:first.eTag,path,bytes:bytes.byteLength,
   sha256:hash,sourceDraftSha256:summary.sha256,
+  // This exact plan was serialized and read back byte-for-byte via Graph.
+  // Available only for a read-only Monday dry-run; not an authorization token.
+  approvedPlan:plan,
   verification:'content-sha256-and-etag',mondaySyncAllowed:false,
   checks:{freshSourceDraftGraph:'passed',entraIdentity:'passed',
    createdWithoutOverwrite:'passed',approvedPlanGraphReadback:'passed'}
