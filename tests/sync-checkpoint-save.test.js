@@ -82,7 +82,7 @@ function mock(approved,{existing=false,wrongIdentity=false,tamperPlan=false,
    return {ok:true,status:200,json:async()=>({
     id:'sync-folder',name:'Sync-Status',folder:{},parentReference:{driveId}
    })};
-  if(url.includes('/Sync-Status/')&&url.includes('?$select=id,name')){
+  if(url.includes('/Sync-Status/')&&url.endsWith('?$select=id,name')){
    return {ok:existing,status:existing?200:404,json:async()=>existing?
     {id:'existing-checkpoint',name:savedName}:{}};
   }
