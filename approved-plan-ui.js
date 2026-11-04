@@ -65,7 +65,8 @@ export function mountApprovedPlanAction({
    const result=await save({
     draftText:p.content,saved:p.saved,intent:p.intent,
     boardId:p.intent.boardId,driveId,tenantId,accountTenantId:p.tenantId,
-    getAccessToken:()=>getAccessToken(current.account)
+    getAccessToken:()=>getAccessToken(current.account),
+    assertCurrent:()=>sequence===requestVersion&&matching(getCurrent(),p)
    });
    completed={boardId:p.intent.boardId,version:p.intent.version};pending=null;
    if(!matching(getCurrent(),p)||sequence!==requestVersion){
