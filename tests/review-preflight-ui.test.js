@@ -25,6 +25,7 @@ test('preflight stays disabled without an exact verified saved version',async()=
  await f.click();
  assert.match(f.output.textContent,/SIKERES/);
  assert.match(f.output.textContent,/Jóváhagyás: TILTVA/);
+ assert.match(f.output.textContent,/Külön jóváhagyói csoport nem szükséges/);
  assert.match(f.output.textContent,/Monday-szinkron: TILTVA/);
 });
 test('a revision during verification invalidates the pending result',async()=>{
