@@ -62,10 +62,16 @@ export function mountApprovedPlanAction({
   busy=true;button.disabled=true;
   output.textContent='SharePoint DRAFT ismételt Graph-ellenőrzése, majd Approved Plan mentése és teljes visszaolvasása...';
   try{
+   // Acquire Graph scopes from the confirmed click. The access token stays
+   // only in memory for this single SharePoint operation.
+   const accessToken=await getAccessToken(current.account);
+   if(typeof accessToken!=='string'||!accessToken)throw Error('Microsoft Graph token hianyzik.');
+   if(sequence!==requestVersion||!matching(getCurrent(),p))
+    throw Error('A DRAFT vagy a Microsoft-munkamenet megvaltozott, nincs iras.');
    const result=await save({
     draftText:p.content,saved:p.saved,intent:p.intent,
     boardId:p.intent.boardId,driveId,tenantId,accountTenantId:p.tenantId,
-    getAccessToken:()=>getAccessToken(current.account),
+    getAccessToken:async()=>accessToken,
     assertCurrent:()=>sequence===requestVersion&&matching(getCurrent(),p)
    });
    completed={boardId:p.intent.boardId,version:p.intent.version};pending=null;
