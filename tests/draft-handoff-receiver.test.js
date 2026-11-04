@@ -215,5 +215,22 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
  assert.equal(reports[0].report.mutationCount,0);
  await f.send(evt(report));
  assert.equal(reports.length,1);
+ const cpName='sync-prepared-v5-'+approvedHash.slice(0,24)+'.json';
+ const checkpoint={schemaVersion:1,format:'flow-lps-sync-checkpoint',
+  status:'PREPARED_NO_WRITES',boardId,
+  approvedPlan:{sha256:approvedHash,name,eTag:'approved-etag'},
+  writeAuthorization:'NOT_GRANTED',mondaySyncAllowed:false,mondayWritten:false,
+  progress:{cursor:0,mondayWrites:0,inFlight:null,verifiedTaskIds:[]}};
+ const cpResult={status:'CHECKPOINT_PREPARED',boardId,draftVersion:5,
+  approvedPlanSha256:approvedHash,verification:'content-sha256-and-etag',
+  id:'cp-id',eTag:'cp-etag',sha256:'c'.repeat(64),
+  name:cpName,path:'Projects/'+boardId+'/Sync-Status/'+cpName,
+  mondayWrites:0,mondaySyncAllowed:false,checkpoint};
+ assert.equal(receiver.publishVerifiedCheckpoint({...cpResult,
+  checkpoint:{...checkpoint,writeAuthorization:'GRANTED'}},result),false);
+ assert.equal(receiver.publishVerifiedCheckpoint(cpResult,result),true);
+ assert.equal(f.posts.at(-1).data.kind,'sync-checkpoint-preview');
+ assert.equal(f.posts.at(-1).data.checkpoint.status,'PREPARED_NO_WRITES');
+ assert.equal(receiver.publishVerifiedCheckpoint(cpResult,result),false);
  receiver.close();
 });
