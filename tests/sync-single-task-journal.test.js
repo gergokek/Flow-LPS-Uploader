@@ -74,7 +74,7 @@ function mock(f,{unknownDownload=false,duplicateAhead=false,failUpload=false}={}
    globalExpectedName=name;
    return response({uploadUrl,expirationDateTime:new Date(Date.now()+3600000).toISOString()});
   }
-  if(uri.includes('/items/')&&!uri.includes(':')&&!uri.includes('?')){
+  if(uri.startsWith(base+'/items/')&&!uri.includes('?')&&!uri.endsWith('/createUploadSession')){
    const id=decodeURIComponent(uri.split('/').at(-1));
    const item=[...metadata.values()].find(x=>x.id===id);
    if(!item)throw Error('Unexpected item: '+id);
