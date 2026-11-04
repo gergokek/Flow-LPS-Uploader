@@ -47,7 +47,7 @@ export async function inspectSavedDraftForReview({
    graphContent:'verified-sha256-and-etag',
    graphMetadata:'stable',
    entraIdentity:'verified-graph-me',
-   approverGroupMembership:'not-configured',
+   separateApproverRole:'not-required',
    trustedAuthorization:'not-established',
    mondaySourceConflict:'not-checked-in-uploader'
   },
