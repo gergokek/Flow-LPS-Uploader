@@ -431,7 +431,17 @@ const syncCheckpointAction=mountSyncCheckpointAction({
    return (await msal.acquireTokenPopup(request)).accessToken;
   }
  },
- confirm:message=>window.confirm(message)
+ confirm:message=>window.confirm(message),
+ onStored:result=>{
+  // This is an informational, origin-bound preview only, NOT Monday authorization.
+  if(result?.status==='CHECKPOINT_PREPARED'&&result.checkpoint&&
+     approvedSyncCandidate&&draftHandoff.publishVerifiedCheckpoint(result,approvedSyncCandidate)){
+   document.querySelector('#syncCheckpointResult').textContent=
+    'Checkpoint mentve és visszaellenőrizve: '+result.name+
+    '\nA Monday TEST megkapta az egyfeladatos pilot-előnézetet.'+
+    '\nTényleges Monday-írás: 0.';
+  }
+ }
 });
 
 const editedFile=document.querySelector('#editedDraftFile');
