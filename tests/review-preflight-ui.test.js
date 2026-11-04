@@ -18,10 +18,12 @@ function ui(customInspect=async()=>approvedResult){
 test('preflight stays disabled without an exact verified saved version',async()=>{
  const f=ui();
  assert.equal(f.button.disabled,true);
+ assert.equal(f.control.currentProof(),null);
  assert.equal(f.control.record({...proof,sha256:'b'.repeat(64)},7,hash,f.current.content),false);
  assert.equal(f.button.disabled,true);
  assert.equal(f.control.record(proof,7,hash,f.current.content),true);
  assert.equal(f.button.disabled,false);
+ assert.equal(f.control.currentProof().sha256,hash);
  await f.click();
  assert.match(f.output.textContent,/SIKERES/);
  assert.match(f.output.textContent,/Jóváhagyás: TILTVA/);
@@ -57,4 +59,13 @@ test('switching Microsoft account during verification does not claim success',as
  resolve(approvedResult);
  await checking;
  assert.doesNotMatch(f.output.textContent,/SIKERES/);
+});
+
+test('stored proof ceases to be current immediately after a local revision',()=>{
+ const f=ui();
+ assert.equal(f.control.record(proof,7,hash,f.current.content),true);
+ f.current.validated={version:8,sha256:'b'.repeat(64),bytes:100};
+ assert.equal(f.control.currentProof(),null);
+ f.control.clear();
+ assert.equal(f.button.disabled,true);
 });
