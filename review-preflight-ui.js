@@ -40,19 +40,22 @@ export function mountSavedDraftReview({
  async function run(){
   if(busy||!last)return;
   const current=getCurrent(),proof=last,requestVersion=version;
+  const account=current.account;
+  const accountId=account?.homeAccountId,accountTenantId=account?.tenantId;
   if(!matches(current,proof)){clear();return;}
   busy=true;button.disabled=true;
   output.textContent='Friss SharePoint Graph és Microsoft Entra ellenőrzés folyamatban...';
   try{
    const result=await inspect({
     draftText:current.content,saved:proof,boardId:current.boardId,driveId,
-    tenantId,accountTenantId:current.account.tenantId,
-    getAccessToken:()=>getAccessToken(current.account)
+    tenantId,accountTenantId,
+    getAccessToken:()=>getAccessToken(account)
    });
    const next=getCurrent();
    if(requestVersion!==version||last!==proof||!matches(next,proof)||
       next.content!==current.content||
-      next.account?.homeAccountId!==current.account.homeAccountId)
+      next.account?.homeAccountId!==accountId||
+      next.account?.tenantId!==accountTenantId)
     throw Error('A DRAFT vagy a Microsoft-munkamenet időközben megváltozott.');
    output.textContent='DRAFT v'+result.version+' – független Graph-visszaellenőrzés: SIKERES.'+
     '\nSHA-256 és eTag ellenőrzött. SHA-256: '+result.sha256+
