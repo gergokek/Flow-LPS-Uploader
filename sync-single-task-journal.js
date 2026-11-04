@@ -43,6 +43,9 @@ function verify({entry,checkpointReceipt,approvedReceipt,boardId,kind,aheadRecei
   if(entry.format!=='flow-lps-single-task-write-ahead'||entry.status!=='WRITE_AHEAD'||
      entry.maximumMondayWrites!==1||entry.actualMondayWrites!==0||
      !short(entry.sourceFingerprint)||!Array.isArray(entry.fieldNames)||
+     typeof entry.checkedAt!=='string'||!/Z$/.test(entry.checkedAt)||
+     !Number.isFinite(Date.parse(entry.checkedAt))||
+     Math.abs(Date.now()-Date.parse(entry.checkedAt))>15*60*1000||
      entry.fieldNames.length<1||entry.fieldNames.length>25||
      entry.fieldNames.some(f=>typeof f!=='string'||!/^[A-Za-z][A-Za-z0-9]{0,30}$/.test(f)))
    throw Error('Hibas iras elotti naplo.');
@@ -117,6 +120,7 @@ export function createSingleTaskJournal({boardId,driveId,getAccessToken,fetcher=
    boardId,kind,aheadReceipt});
   const checkpoint=await readVerified(checkpointReceipt.name,checkpointReceipt);
   if(checkpoint.schemaVersion!==1||checkpoint.format!=='flow-lps-sync-checkpoint'||
+     (kind==='ahead'&&checkpoint.mondaySourceFingerprint!==entry.sourceFingerprint)||
      checkpoint.status!=='PREPARED_NO_WRITES'||checkpoint.boardId!==boardId||
      checkpoint.approvedPlan?.sha256!==approvedReceipt.sha256||
      checkpoint.writeAuthorization!=='NOT_GRANTED'||
