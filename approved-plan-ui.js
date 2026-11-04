@@ -9,7 +9,7 @@ export function mountApprovedPlanAction({
  if(!button||!output||typeof getCurrent!=='function'||typeof getAccessToken!=='function'||
     typeof confirm!=='function'||typeof save!=='function')
   throw Error('Hibas Approved Plan felulet.');
- let pending=null,busy=false,completed=false,sequence=0;
+ let pending=null,busy=false,completed=null,sequence=0;
  const matching=(c,p)=>!!c?.content&&!!c?.saved&&!!c?.validated&&!!c?.account&&
   c.boardId===p.intent.boardId&&c.content===p.content&&
   c.validated.version===p.intent.version&&
@@ -26,7 +26,8 @@ export function mountApprovedPlanAction({
   if(!busy)output.textContent='Nincs aktív, jóváhagyásra előkészített DRAFT.';
  }
  function receive(intent){
-  if(busy||completed||pending)return false;
+  if(busy||pending||completed?.boardId===intent?.boardId&&
+    completed?.version>=intent?.version)return false;
   const current=getCurrent(),saved=current?.saved,account=current?.account;
   if(!account?.homeAccountId||!account.tenantId||
    !saved||intent?.schemaVersion!==1||
@@ -50,7 +51,8 @@ export function mountApprovedPlanAction({
   return true;
  }
  async function run(){
-  if(!pending||busy||completed)return;
+  if(!pending||busy||completed?.boardId===pending.intent.boardId&&
+    completed?.version>=pending.intent.version)return;
   const p=pending,current=getCurrent(),requestVersion=sequence;
   if(!matching(current,p)){clear();return;}
   if(!confirm('A DRAFT v'+p.intent.version+
@@ -65,7 +67,7 @@ export function mountApprovedPlanAction({
     boardId:p.intent.boardId,driveId,tenantId,accountTenantId:p.tenantId,
     getAccessToken:()=>getAccessToken(current.account)
    });
-   completed=true;pending=null;
+   completed={boardId:p.intent.boardId,version:p.intent.version};pending=null;
    if(!matching(getCurrent(),p)||sequence!==requestVersion){
     output.textContent='Az Approved Plan mentése megtörténhetett, de a munkamenet közben változott. '+
      'Ellenőrizd közvetlenül a SharePoint Approved-Plans mappát. Fájl: '+result.name;
@@ -77,7 +79,7 @@ export function mountApprovedPlanAction({
     '\nForrás DRAFT SHA-256: '+result.sourceDraftSha256+
     '\nMonday-szinkron: NEM INDULT EL.';
   }catch(error){
-   pending=null;completed=true; // Unknown upload result must not be retried from this tab.
+   pending=null;completed={boardId:p.intent.boardId,version:p.intent.version}; // Unknown upload result must not be retried from this tab.
    if(sequence===requestVersion)
     output.textContent='Approved Plan mentése nem igazolt: '+(error?.message||error)+
      '\nNe próbáld automatikusan újra! Ellenőrizd az Approved-Plans mappát.';
