@@ -89,6 +89,7 @@ test('a new revision during async upload cannot be shown as current success',asy
  const f=fixture(()=>new Promise(resolve=>{done=resolve;}));
  f.control.receive(intent);
  const running=f.click();
+ await Promise.resolve(); // allow the asynchronous delegated token acquisition to finish
  f.current.content='changed draft';
  f.control.clear();
  done(created);
