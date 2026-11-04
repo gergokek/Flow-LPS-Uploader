@@ -72,3 +72,57 @@ test('receiver can accept newer revision and will not report an old verified res
  assert.equal(f.posts.at(-1).data.receipt.version,6);
  receiver.close();
 });
+
+test('review-only finalization intent needs current content-verified save and matching opener',async()=>{
+ const f=fixture(),approved=[];
+ const receiver=attachDraftHandoff({win:f.win,onDraft:async()=>valid(),
+  onFinalizationIntent:async({boardId,intent})=>{approved.push({boardId,intent});return true;}});
+ const intent={schemaVersion:1,format:'flow-lps-draft-finalization-intent',
+  status:'INTENT_ONLY',boardId,version:5,sha256:hash,bytes,
+  editorId:'96423073',confirmedAt:new Date().toISOString(),
+  isApprovedPlan:false,mondaySyncAllowed:false,approvalEligible:false};
+ const event=(override={},origin='https://monday.example.com')=>({
+  source:f.opener,origin,data:{protocol,kind:'finalization-intent',nonce,boardId,
+   intent:{...intent,...override}}
+ });
+ await f.send(transferred(f));
+ await f.send(event());
+ assert.equal(approved.length,0);
+ assert.equal(receiver.publishVerifiedReceipt(save()),true);
+ await f.send(event({sha256:'0'.repeat(64)}));
+ await f.send(event({isApprovedPlan:true}));
+ await f.send(event({},'https://attacker.example'));
+ assert.equal(approved.length,0);
+ await f.send(event());
+ assert.equal(approved.length,1);
+ assert.deepEqual(f.posts.at(-1).data,{
+  protocol,kind:'finalization-intent-received',nonce,boardId,
+  version:5,sha256:hash,status:'REVIEW_INTENT_ONLY'
+ });
+ await f.send(event());
+ assert.equal(approved.length,1);
+ receiver.close();
+});
+test('a failed review callback yields no confirmation, and old intents do not survive new revisions',async()=>{
+ const f=fixture(),requested=[];
+ const receiver=attachDraftHandoff({win:f.win,onDraft:async()=>valid(),
+  onRevision:async()=>({boardId,version:6,sha256:'b'.repeat(64),bytes:2000}),
+  onFinalizationIntent:async ({intent})=>{requested.push(intent.version);return false;}});
+ await f.send(transferred(f));
+ receiver.publishVerifiedReceipt(save());
+ const intent={schemaVersion:1,format:'flow-lps-draft-finalization-intent',
+  status:'INTENT_ONLY',boardId,version:5,sha256:hash,bytes,
+  editorId:'96423073',confirmedAt:new Date().toISOString(),
+  isApprovedPlan:false,mondaySyncAllowed:false,approvalEligible:false};
+ const event=x=>({source:f.opener,origin:'https://monday.example.com',
+  data:{protocol,kind:'finalization-intent',nonce,boardId,intent:x}});
+ await f.send(event(intent));
+ assert.deepEqual(requested,[5]);
+ assert.equal(f.posts.at(-1).data.kind,'verified');
+ await f.send({source:f.opener,origin:'https://monday.example.com',data:{
+  protocol,kind:'revision',nonce,boardId,content:'new draft'
+ }});
+ await f.send(event(intent));
+ assert.deepEqual(requested,[5]);
+ receiver.close();
+});
