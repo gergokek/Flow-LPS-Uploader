@@ -126,3 +126,43 @@ test('a failed review callback yields no confirmation, and old intents do not su
  assert.deepEqual(requested,[5]);
  receiver.close();
 });
+
+test('verified Approved Plan may be sent only after current DRAFT finalization intent, with no writes',async()=>{
+ const f=fixture();
+ const receiver=attachDraftHandoff({win:f.win,onDraft:async()=>valid(),
+  onFinalizationIntent:async()=>true});
+ const name='approved-v5-'+hash.slice(0,24)+'.json';
+ const approvedPlan={
+  schemaVersion:1,format:'flow-lps-approved-plan',status:'APPROVED',
+  isApprovedPlan:true,mondaySyncAllowed:false,boardId,draftVersion:5,
+  sourceDraft:{sha256:hash},plan:{base:{id:boardId,tasks:[]},working:[],history:[]}
+ };
+ const result={status:'APPROVED_PLAN_STORED',boardId,version:5,
+  sourceDraftSha256:hash,verification:'content-sha256-and-etag',
+  sha256:'b'.repeat(64),name,id:'approved-id',eTag:'approved-etag',
+  path:'Projects/'+boardId+'/Approved-Plans/'+name,
+  mondaySyncAllowed:false,approvedPlan};
+ assert.equal(receiver.publishApprovedSyncPreview(result),false);
+ await f.send(transferred(f));
+ assert.equal(receiver.publishApprovedSyncPreview(result),false);
+ assert.equal(receiver.publishVerifiedReceipt(save()),true);
+ assert.equal(receiver.publishApprovedSyncPreview(result),false);
+ const intent={schemaVersion:1,format:'flow-lps-draft-finalization-intent',
+  status:'INTENT_ONLY',boardId,version:5,sha256:hash,bytes,
+  editorId:'96423073',confirmedAt:new Date().toISOString(),
+  isApprovedPlan:false,mondaySyncAllowed:false,approvalEligible:false};
+ await f.send({source:f.opener,origin:'https://monday.example.com',data:{
+  protocol,kind:'finalization-intent',nonce,boardId,intent
+ }});
+ assert.equal(receiver.publishApprovedSyncPreview({...result,sourceDraftSha256:'c'.repeat(64)}),false);
+ assert.equal(receiver.publishApprovedSyncPreview({...result,approvedPlan:{...approvedPlan,mondaySyncAllowed:true}}),false);
+ assert.equal(receiver.publishApprovedSyncPreview(result),true);
+ const sent=f.posts.at(-1);
+ assert.equal(sent.data.kind,'approved-sync-dry-run');
+ assert.equal(sent.origin,'https://monday.example.com');
+ assert.equal(sent.data.receipt.mondaySyncAllowed,false);
+ assert.equal(sent.data.receipt.sha256,'b'.repeat(64));
+ assert.equal(sent.data.approvedPlan.status,'APPROVED');
+ receiver.close();
+ assert.equal(receiver.publishApprovedSyncPreview(result),false);
+});
