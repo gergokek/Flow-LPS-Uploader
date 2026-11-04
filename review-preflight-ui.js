@@ -75,5 +75,5 @@ export function mountSavedDraftReview({
  }
  button.addEventListener('click',run);
  clear();
- return Object.freeze({record,clear});
+ return Object.freeze({record,clear,currentProof:()=>matches(getCurrent(),last)?last:null});
 }
