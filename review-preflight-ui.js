@@ -61,7 +61,7 @@ export function mountSavedDraftReview({
     '\nSHA-256 és eTag ellenőrzött. SHA-256: '+result.sha256+
     '\nMicrosoft Entra /me: '+result.identity.userPrincipalName+
     ' ('+result.identity.objectId+')'+
-    '\nJóváhagyói csoporttagság: NINCS KONFIGURÁLVA.'+
+    '\nKülön jóváhagyói csoport nem szükséges. A véglegesítésre a Monday-ben jogosult szerkesztő jogosult.'+
     '\nJóváhagyás: TILTVA. Monday-szinkron: TILTVA.'+
     '\nA böngészős ellenőrzés nem szerveroldali jogosultsági bizonyíték.';
   }catch(e){
