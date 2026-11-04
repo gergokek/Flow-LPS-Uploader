@@ -21,7 +21,9 @@ export function mountSavedDraftReview({
   !!current?.account&&proof&&current.boardId===proof.boardId&&
   current.validated.version===proof.version&&
   current.validated.sha256===proof.sha256&&
-  current.validated.bytes===proof.bytes;
+  current.validated.bytes===proof.bytes&&
+  current.account.homeAccountId===proof.accountId&&
+  current.account.tenantId===proof.accountTenantId;
  function record(saved,revision,hash,content){
   const current=getCurrent();
   if(!saved||current.content!==content||!current.account||
@@ -29,7 +31,8 @@ export function mountSavedDraftReview({
      saved.boardId!==current.boardId||saved.sha256!==hash||
      saved.bytes!==current.validated.bytes||saved.verification!=='content-sha256-and-etag')
    return false;
-  const proof=Object.freeze({...saved,version:revision});
+  const proof=Object.freeze({...saved,version:revision,
+   accountId:current.account.homeAccountId,accountTenantId:current.account.tenantId});
   if(!matches(current,proof))return false;
   version++;
   last=proof;
