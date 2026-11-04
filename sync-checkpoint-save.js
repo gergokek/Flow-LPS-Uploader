@@ -235,6 +235,9 @@ export async function saveSyncPreparationCheckpoint({
   name:filename,id:after.id,eTag:after.eTag,sha256:hash,
   approvedPlanSha256:approved.sha256,
   verification:'content-sha256-and-etag',mondayWrites:0,
-  mondaySyncAllowed:false,mondayWritten:false
+  mondaySyncAllowed:false,mondayWritten:false,
+  // Exact serialized checkpoint content was SHA-256/eTag read back above.
+  // Browser preview only; never a server-side Monday write permission.
+  checkpoint
  });
 }
