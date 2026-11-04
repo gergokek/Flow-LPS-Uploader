@@ -94,3 +94,22 @@ test('a new revision during async upload cannot be shown as current success',asy
  assert.match(f.output.textContent,/Ellenőrizd közvetlenül/);
  assert.equal(f.button.disabled,true);
 });
+
+test('a newly saved later DRAFT may be finalized without restarting the browser',async()=>{
+ let saves=0;
+ const f=fixture(async()=>{saves++;return created;});
+ assert.equal(f.control.receive(intent),true);
+ await f.click();
+ assert.equal(saves,1);
+ f.control.clear();
+ const newerHash='c'.repeat(64);
+ f.current.content='draft-v8';
+ f.current.validated={version:8,sha256:newerHash,bytes:1250};
+ f.current.saved={...proof,version:8,sha256:newerHash,bytes:1250,
+  id:'file-2',eTag:'etag-2',name:'draft-v8-abcdefgh-12345678.json'};
+ const next={...intent,version:8,sha256:newerHash,bytes:1250};
+ assert.equal(f.control.receive(next),true);
+ await f.click();
+ assert.equal(saves,2);
+ assert.equal(f.control.receive(next),false);
+});
