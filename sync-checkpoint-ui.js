@@ -15,8 +15,7 @@ export function mountSyncCheckpointAction({
  const matches=(c,p)=>{
   const a=c?.approved,r=p?.report;
   return !!c?.account?.homeAccountId&&!!c?.account?.tenantId&&
-   (!!c?.account?.homeAccountId&&!!c?.account?.tenantId&&
-    !!c?.saved&&!!c?.validated&&!!a&&
+    !!c?.saved&&!!c?.validated&&!!a&&!!r&&
     c.approved===p.approved&&c.boardId===a.boardId&&
     c.saved.sha256===a.sourceDraftSha256&&
     c.saved.version===a.version&&
