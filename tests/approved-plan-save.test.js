@@ -146,3 +146,12 @@ test('bytes modified after Graph upload never report verified Approved Plan',asy
  await assert.rejects(()=>run(f,n),/SHA-256/);
  assert.equal(n.calls.filter(c=>c.options.method==='PUT').length,1);
 });
+
+test('a newer DRAFT detected before upload prevents any Approved Plan PUT',async()=>{
+ const f=await fixture(),n=network();
+ let checks=0;
+ await assert.rejects(()=>saveApprovedPlan({...f,fetcher:n.fetcher,
+  inspect:async()=>report(f),assertCurrent:()=>++checks<4}),/megvaltozott/);
+ assert.ok(checks>=4);
+ assert.equal(n.calls.some(c=>c.options.method==='PUT'),false);
+});
