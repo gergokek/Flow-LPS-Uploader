@@ -53,7 +53,7 @@ test('independent Graph readback and /me produce review-only result',async()=>{
  assert.equal(result.version,7);
  assert.equal(result.identity.objectId,objectId);
  assert.equal(result.checks.graphContent,'verified-sha256-and-etag');
- assert.equal(result.checks.approverGroupMembership,'not-configured');
+ assert.equal(result.checks.separateApproverRole,'not-required');
  assert.equal(result.eligibleForApproval,false);
  assert.equal(result.isApprovedPlan,false);
  assert.equal(result.mondaySyncAllowed,false);
