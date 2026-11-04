@@ -69,7 +69,11 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
       !Number.isSafeInteger(report.changedTasks)||report.changedTasks<1||
       report.changedTasks>report.totalTasks||
       !Number.isSafeInteger(report.fieldChanges)||report.fieldChanges<report.changedTasks||
-      !Array.isArray(report.fieldCounts)||
+      !Array.isArray(report.fieldCounts)||report.fieldCounts.length<1||
+      report.fieldCounts.length>40||
+      report.fieldCounts.some(f=>!f||typeof f.field!=='string'||
+       !/^[a-zA-Z][a-zA-Z0-9]{0,30}$/.test(f.field)||
+       !Number.isSafeInteger(f.tasks)||f.tasks<1||f.tasks>report.totalTasks)||
       report.fieldCounts.reduce((n,f)=>n+f.tasks,0)!==report.fieldChanges)
     return;
    syncPreviewPending=null;
