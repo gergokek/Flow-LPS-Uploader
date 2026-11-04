@@ -357,6 +357,7 @@ const editedStatus=document.querySelector('#editedDraftStatus');
 const editedResult=document.querySelector('#editedDraftSaveResult');
 editedFile.addEventListener('change',async()=>{
  savedReview.clear();
+ document.querySelector('#finalizationIntentResult').textContent='Nincs aktuális véglegesítési kérelem.';
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs feltoltes.';
  try{
@@ -371,6 +372,10 @@ editedFile.addEventListener('change',async()=>{
 });
 // One-time browser handoff from Monday. The received JSON is untrusted input:
  // validate it locally and require a separate Microsoft-authenticated save click.
+const finalizationIntentOutput=document.querySelector('#finalizationIntentResult');
+const resetFinalizationIntent=()=>{
+ finalizationIntentOutput.textContent='Nincs aktuális véglegesítési kérelem.';
+};
 const autoCheckbox=document.querySelector('#enableSessionAutosave');
 const autoOutput=document.querySelector('#sessionAutosaveResult');
 let manualSaveVerified=false;
@@ -413,7 +418,7 @@ autoCheckbox.addEventListener('change',()=>{
  }else sessionAutosave.disable();
 });
 const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
- savedReview.clear();
+ savedReview.clear();resetFinalizationIntent();
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
  try{
@@ -427,7 +432,7 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   return {boardId:valid.boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
  }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
 },onRevision:async({content,boardId})=>{
- savedReview.clear();
+ savedReview.clear();resetFinalizationIntent();
  if(boardId!==projectBoard.value.trim())throw Error('Eltero Monday-board.');
  const valid=await validateEditedDraft(content,boardId);
  if(editedDraftChecked&&valid.version<=editedDraftChecked.version)
@@ -436,6 +441,21 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
  editedStatus.textContent='DRAFT v'+valid.version+' atveve a Monday-bol: '+valid.taskCount+
   ' feladat. SharePoint visszaigazolas meg nincs.';
  return {boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
+},onFinalizationIntent:async({boardId,intent})=>{
+ const saved=savedReview.currentProof();
+ if(!saved||boardId!==projectBoard.value.trim()||
+    saved.boardId!==boardId||saved.version!==intent.version||
+    saved.sha256!==intent.sha256||saved.bytes!==intent.bytes||
+    editedDraftChecked?.version!==intent.version||
+    editedDraftChecked?.sha256!==intent.sha256||
+    !msal.getAllAccounts()[0])return false;
+ finalizationIntentOutput.textContent='A Monday TEST-ben megerősített DRAFT v'+
+  intent.version+' véglegesítési szándéka megérkezett.'+
+  '\nMonday szerkesztőazonosító (böngészős adat): '+intent.editorId+
+  '\nSHA-256: '+intent.sha256+
+  '\nKövetkező lépés: friss Graph + Entra ellenőrzés indítása az alábbi gombbal.'+
+  '\nNEM jóváhagyott terv; Approved-Plans és Monday változatlan.';
+ return true;
 },onAcceptedRevision:work=>{
  if(sessionAutosave.state().enabled)sessionAutosave.enqueue(work);
  else autoOutput.textContent='Uj DRAFT v'+work.version+' erkezett. Automatikus mentes nincs engedelyezve; kezi mentes szukseges.';
