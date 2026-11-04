@@ -352,6 +352,32 @@ editedVerifyButton.addEventListener('click',async()=>{
  finally{editedVerifyButton.disabled=!editedDraftText||!editedDownloaded.files?.length;}
 });
 
+const syncDryRunButton=document.querySelector('#runApprovedSyncDryRun');
+const syncDryRunOutput=document.querySelector('#approvedSyncDryRunResult');
+let approvedSyncCandidate=null;
+function invalidateApprovedSyncCandidate(){
+ approvedSyncCandidate=null;syncDryRunButton.disabled=true;
+ syncDryRunOutput.textContent='Nincs aktuális, visszaellenőrzött Approved Plan a szárazpróbához.';
+}
+syncDryRunButton.addEventListener('click',()=>{
+ if(!approvedSyncCandidate||!draftHandoff.active)return;
+ const current=savedReview.currentProof(),result=approvedSyncCandidate;
+ if(!current||current.version!==result.version||
+    current.sha256!==result.sourceDraftSha256||
+    editedDraftChecked?.version!==result.version||
+    editedDraftChecked?.sha256!==result.sourceDraftSha256){
+  invalidateApprovedSyncCandidate();return;
+ }
+ if(draftHandoff.publishApprovedSyncPreview(result)){
+  syncDryRunOutput.textContent='Az Approved Plan v'+result.version+
+   ' átadva a Monday TEST felületnek szárazpróbára. Ott jelennek meg a mezőeltérések.'+
+   '\nA Monday-board változatlan; nem történt visszaírás.';
+  syncDryRunButton.disabled=true;
+ }else{
+  syncDryRunOutput.textContent='A szárazpróba átadása nem sikerült. Ellenőrizd, hogy a Monday TEST és az Uploader eredeti kapcsolata még nyitva van.';
+ }
+});
+
 const approvedPlanAction=mountApprovedPlanAction({
  button:document.querySelector('#createApprovedPlan'),
  output:document.querySelector('#approvedPlanSaveResult'),
@@ -370,7 +396,16 @@ const approvedPlanAction=mountApprovedPlanAction({
    return (await msal.acquireTokenPopup(request)).accessToken;
   }
  },
- confirm:text=>window.confirm(text)
+ confirm:text=>window.confirm(text),
+ onStored:result=>{
+  if(result?.approvedPlan&&result.status==='APPROVED_PLAN_STORED'&&
+     result.mondaySyncAllowed===false){
+   approvedSyncCandidate=result;
+   syncDryRunButton.disabled=false;
+   syncDryRunOutput.textContent='Approved Plan ellenőrizve: '+result.name+
+    '. A Monday szárazpróba külön gombbal indítható, írás nélkül.';
+  }
+ }
 });
 
 const editedFile=document.querySelector('#editedDraftFile');
@@ -378,7 +413,7 @@ const editedSave=document.querySelector('#saveEditedDraft');
 const editedStatus=document.querySelector('#editedDraftStatus');
 const editedResult=document.querySelector('#editedDraftSaveResult');
 editedFile.addEventListener('change',async()=>{
- savedReview.clear();approvedPlanAction.clear();
+ savedReview.clear();approvedPlanAction.clear();invalidateApprovedSyncCandidate();
  document.querySelector('#finalizationIntentResult').textContent='Nincs aktuális véglegesítési kérelem.';
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs feltoltes.';
@@ -440,7 +475,7 @@ autoCheckbox.addEventListener('change',()=>{
  }else sessionAutosave.disable();
 });
 const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();invalidateApprovedSyncCandidate();resetFinalizationIntent();
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
  try{
@@ -454,7 +489,7 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   return {boardId:valid.boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
  }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
 },onRevision:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();invalidateApprovedSyncCandidate();resetFinalizationIntent();
  if(boardId!==projectBoard.value.trim())throw Error('Eltero Monday-board.');
  const valid=await validateEditedDraft(content,boardId);
  if(editedDraftChecked&&valid.version<=editedDraftChecked.version)
