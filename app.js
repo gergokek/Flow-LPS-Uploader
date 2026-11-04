@@ -6,6 +6,7 @@ import {prepareSharePointReviewEvidence} from './sharepoint-review-evidence.js';
 import {verifyEditedDraftDownload} from './edited-draft-verifier.js';
 import {validateEditedDraft} from './edited-draft-validator.js';
 import {mountSavedDraftReview} from './review-preflight-ui.js';
+import {mountApprovedPlanAction} from './approved-plan-ui.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import {createProjectStorage} from './project-storage.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
@@ -351,12 +352,33 @@ editedVerifyButton.addEventListener('click',async()=>{
  finally{editedVerifyButton.disabled=!editedDraftText||!editedDownloaded.files?.length;}
 });
 
+const approvedPlanAction=mountApprovedPlanAction({
+ button:document.querySelector('#createApprovedPlan'),
+ output:document.querySelector('#approvedPlanSaveResult'),
+ driveId,tenantId,
+ getCurrent:()=>({
+  boardId:projectBoard.value.trim(),content:editedDraftText,
+  validated:editedDraftChecked,saved:savedReview.currentProof(),
+  account:msal.getAllAccounts()[0]||null
+ }),
+ getAccessToken:async account=>{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected',
+   'https://graph.microsoft.com/User.Read'],account,redirectUri};
+  try{return (await msal.acquireTokenSilent(request)).accessToken;}
+  catch(e){
+   if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;
+   return (await msal.acquireTokenPopup(request)).accessToken;
+  }
+ },
+ confirm:text=>window.confirm(text)
+});
+
 const editedFile=document.querySelector('#editedDraftFile');
 const editedSave=document.querySelector('#saveEditedDraft');
 const editedStatus=document.querySelector('#editedDraftStatus');
 const editedResult=document.querySelector('#editedDraftSaveResult');
 editedFile.addEventListener('change',async()=>{
- savedReview.clear();
+ savedReview.clear();approvedPlanAction.clear();
  document.querySelector('#finalizationIntentResult').textContent='Nincs aktuális véglegesítési kérelem.';
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs feltoltes.';
@@ -418,7 +440,7 @@ autoCheckbox.addEventListener('change',()=>{
  }else sessionAutosave.disable();
 });
 const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
- savedReview.clear();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();resetFinalizationIntent();
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
  try{
@@ -432,7 +454,7 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   return {boardId:valid.boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
  }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
 },onRevision:async({content,boardId})=>{
- savedReview.clear();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();resetFinalizationIntent();
  if(boardId!==projectBoard.value.trim())throw Error('Eltero Monday-board.');
  const valid=await validateEditedDraft(content,boardId);
  if(editedDraftChecked&&valid.version<=editedDraftChecked.version)
@@ -449,11 +471,12 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
     editedDraftChecked?.version!==intent.version||
     editedDraftChecked?.sha256!==intent.sha256||
     !msal.getAllAccounts()[0])return false;
+ if(!approvedPlanAction.receive(intent))return false;
  finalizationIntentOutput.textContent='A Monday TEST-ben megerősített DRAFT v'+
   intent.version+' véglegesítési szándéka megérkezett.'+
   '\nMonday szerkesztőazonosító (böngészős adat): '+intent.editorId+
   '\nSHA-256: '+intent.sha256+
-  '\nKövetkező lépés: friss Graph + Entra ellenőrzés indítása az alábbi gombbal.'+
+  '\nKövetkező lépés: külön megerősítéssel Approved Plan mentése, új Graph-ellenőrzéssel.'+
   '\nNEM jóváhagyott terv; Approved-Plans és Monday változatlan.';
  return true;
 },onAcceptedRevision:work=>{
