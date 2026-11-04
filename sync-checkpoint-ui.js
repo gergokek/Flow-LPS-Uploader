@@ -4,11 +4,11 @@ import {saveSyncPreparationCheckpoint} from './sync-checkpoint-save.js';
 // This controller never starts a Monday mutation or grants permission to sync.
 export function mountSyncCheckpointAction({
  button,output,getCurrent,getAccessToken,confirm,
- driveId,tenantId,save=saveSyncPreparationCheckpoint
+ driveId,tenantId,save=saveSyncPreparationCheckpoint,onStored=()=>{}
 }={}){
  if(!button||!output||typeof getCurrent!=='function'||
     typeof getAccessToken!=='function'||typeof confirm!=='function'||
-    typeof save!=='function')
+    typeof save!=='function'||typeof onStored!=='function')
   throw Error('Hibas szinkron checkpoint felulet.');
  let candidate=null,busy=false,completed=new Set(),sequence=0;
  const key=a=>a.boardId+':'+a.version+':'+a.sha256;
@@ -77,6 +77,7 @@ export function mountSyncCheckpointAction({
      '\nEllenőrizd a Sync-Status mappát: '+result.name;
     return;
    }
+   try{onStored(result);}catch{/* Browser handoff feedback cannot affect the verified SharePoint save. */}
    output.textContent='Sikeres 0-írásos checkpoint-mentés, teljes Graph SHA-256/eTag-ellenőrzéssel.'+
     '\nFájl: '+result.path+'\nSHA-256: '+result.sha256+
     '\neTag: '+result.eTag+
