@@ -402,6 +402,9 @@ const approvedPlanAction=mountApprovedPlanAction({
   if(result?.approvedPlan&&result.status==='APPROVED_PLAN_STORED'&&
      result.mondaySyncAllowed===false){
    approvedSyncCandidate=result;
+   document.querySelector('#finalizationIntentResult').textContent=
+    'Approved Plan v'+result.version+' sikeresen létrehozva a SharePointon. '+
+    'A Monday TEST változatlan; a szinkron külön szárazpróbával folytatható.';
    syncDryRunButton.disabled=false;
    syncDryRunOutput.textContent='Approved Plan ellenőrizve: '+result.name+
     '. A Monday szárazpróba külön gombbal indítható, írás nélkül.';
