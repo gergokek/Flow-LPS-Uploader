@@ -9,7 +9,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
  const nonce=params.get('draft-handoff');
  if(!nonce||!nonceRegex.test(nonce)||!win.opener)
   return Object.freeze({active:false,close:()=>{},publishVerifiedReceipt:()=>false});
- let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null;
+ let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null,lastPreviewAck=null,checkpointPublished=false;
  const close=()=>{closed=true;win.removeEventListener('message',handler);};
  const validProof=(proof,boardId)=>proof&&proof.boardId===boardId&&
   Number.isSafeInteger(proof.version)&&proof.version>0&&
@@ -76,7 +76,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
        !Number.isSafeInteger(f.tasks)||f.tasks<1||f.tasks>report.totalTasks)||
       report.fieldCounts.reduce((n,f)=>n+f.tasks,0)!==report.fieldChanges)
     return;
-   syncPreviewPending=null;
+   syncPreviewPending=null;lastPreviewAck=pending;checkpointPublished=false;
    try{onSyncDryRunVerified(Object.freeze({
     boardId:accepted.boardId,report,
     approvedName:pending.name,approvedSha256:pending.sha256,
@@ -96,7 +96,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    if(!validProof(verified,boardId))throw Error('DRAFT validation failed');
    if(accepted&&verified.version<=accepted.version)throw Error('Older or duplicate DRAFT revision');
    if(closed)return;
-   finalizationIntentAccepted=false;syncPreviewPending=null;
+   finalizationIntentAccepted=false;syncPreviewPending=null;lastPreviewAck=null;checkpointPublished=false;
    accepted={boardId,version:verified.version,sha256:verified.sha256,
     bytes:verified.bytes,sourceOrigin:event.origin};
    win.opener?.postMessage({protocol,kind:'received',nonce,version:verified.version,sha256:verified.sha256},event.origin);
@@ -159,5 +159,54 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    return true;
   }catch{syncPreviewPending=null;return false;}
  }
- return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview});
+ function publishVerifiedCheckpoint(result,approved){
+  const cp=result?.checkpoint,plan=approved?.approvedPlan,ack=lastPreviewAck;
+  if(closed||busy||!accepted||!ack||checkpointPublished||
+     !finalizationIntentAccepted||verifiedVersion!==accepted.version||
+     result?.status!=='CHECKPOINT_PREPARED'||result.boardId!==accepted.boardId||
+     result.draftVersion!==accepted.version||result.approvedPlanSha256!==ack.sha256||
+     result.verification!=='content-sha256-and-etag'||
+     result.mondayWrites!==0||result.mondaySyncAllowed!==false||
+     !/^[a-f0-9]{64}$/.test(result.sha256||'')||!result.id||!result.eTag||
+     approved?.status!=='APPROVED_PLAN_STORED'||
+     approved.boardId!==accepted.boardId||
+     approved.version!==accepted.version||approved.sha256!==ack.sha256||
+     approved.eTag!==ack.eTag||approved.name!==ack.name||
+     plan?.format!=='flow-lps-approved-plan'||plan.status!=='APPROVED'||
+     plan.isApprovedPlan!==true||plan.mondaySyncAllowed!==false||
+     plan.boardId!==accepted.boardId||plan.draftVersion!==accepted.version||
+     cp?.schemaVersion!==1||cp.format!=='flow-lps-sync-checkpoint'||
+     cp.status!=='PREPARED_NO_WRITES'||cp.boardId!==accepted.boardId||
+     cp.approvedPlan?.sha256!==ack.sha256||
+     cp.approvedPlan?.name!==ack.name||cp.approvedPlan?.eTag!==ack.eTag||
+     cp.mondaySyncAllowed!==false||cp.mondayWritten!==false||
+     cp.writeAuthorization!=='NOT_GRANTED'||cp.progress?.cursor!==0||
+     cp.progress?.mondayWrites!==0||cp.progress?.inFlight!==null||
+     !Array.isArray(cp.progress?.verifiedTaskIds)||
+     cp.progress.verifiedTaskIds.length!==0)return false;
+  const cpName='sync-prepared-v'+accepted.version+'-'+ack.sha256.slice(0,24)+'.json';
+  if(result.name!==cpName||
+     result.path!=='Projects/'+accepted.boardId+'/Sync-Status/'+cpName)
+   return false;
+  try{
+   if(JSON.stringify({plan,cp}).length>5_000_000)return false;
+   win.opener.postMessage({protocol,kind:'sync-checkpoint-preview',nonce,
+    boardId:accepted.boardId,approvedPlan:plan,
+    receipt:{status:approved.status,boardId:approved.boardId,
+     version:approved.version,name:approved.name,eTag:approved.eTag,
+     sourceDraftSha256:approved.sourceDraftSha256,
+     sha256:approved.sha256,verification:approved.verification,
+     mondaySyncAllowed:false},
+    checkpoint:cp,checkpointReceipt:{
+     status:result.status,boardId:result.boardId,
+     draftVersion:result.draftVersion,
+     approvedPlanSha256:result.approvedPlanSha256,
+     name:result.name,path:result.path,id:result.id,eTag:result.eTag,
+     sha256:result.sha256,verification:result.verification,
+     mondayWrites:0,mondaySyncAllowed:false
+    }},accepted.sourceOrigin);
+   checkpointPublished=true;return true;
+  }catch{return false;}
+ }
+ return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint});
 }
