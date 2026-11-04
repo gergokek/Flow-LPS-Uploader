@@ -24,7 +24,7 @@ export function mountSyncCheckpointAction({
     r.boardId===a.boardId&&r.draftVersion===a.version&&
     r.approvedPlanSha256===a.sha256&&
     c.account.homeAccountId===p.accountId&&
-    c.account.tenantId===p.tenantId);
+    c.account.tenantId===p.tenantId;
  };
  function clear(){
   sequence++;candidate=null;button.disabled=true;
