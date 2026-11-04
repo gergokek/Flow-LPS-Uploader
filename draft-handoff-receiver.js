@@ -1,14 +1,15 @@
 const protocol='flow-lps-draft-handoff-v1';
 const nonceRegex=/^[0-9a-f-]{36}$/i;
 // Verified receipts are UI feedback only. They do not authorize Monday writes.
-export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{}}={}){
+export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{},onFinalizationIntent=async()=>false}={}){
  if(!win||typeof win.addEventListener!=='function'||typeof onDraft!=='function'||
-    typeof onRevision!=='function'||typeof onAcceptedRevision!=='function')throw Error('Invalid handoff receiver');
+    typeof onRevision!=='function'||typeof onAcceptedRevision!=='function'||
+    typeof onFinalizationIntent!=='function')throw Error('Invalid handoff receiver');
  const params=new URLSearchParams((win.location.hash||'').replace(/^#/,''));
  const nonce=params.get('draft-handoff');
  if(!nonce||!nonceRegex.test(nonce)||!win.opener)
   return Object.freeze({active:false,close:()=>{},publishVerifiedReceipt:()=>false});
- let closed=false,accepted=null,busy=false,verifiedVersion=0;
+ let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false;
  const close=()=>{closed=true;win.removeEventListener('message',handler);};
  const validProof=(proof,boardId)=>proof&&proof.boardId===boardId&&
   Number.isSafeInteger(proof.version)&&proof.version>0&&
@@ -18,6 +19,32 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
   if(closed||busy||event.source!==win.opener||event.data?.protocol!==protocol||
    event.data?.nonce!==nonce||event.origin==='null'||!/^https:\/\//.test(event.origin))return;
   const kind=event.data?.kind;
+  if(kind==='finalization-intent'){
+   if(!accepted||verifiedVersion!==accepted.version||finalizationIntentAccepted||
+      event.origin!==accepted.sourceOrigin||event.data.boardId!==accepted.boardId)return;
+   const intent=event.data?.intent;
+   if(intent?.schemaVersion!==1||intent.format!=='flow-lps-draft-finalization-intent'||
+      intent.status!=='INTENT_ONLY'||intent.isApprovedPlan!==false||
+      intent.mondaySyncAllowed!==false||intent.approvalEligible!==false||
+      intent.boardId!==accepted.boardId||intent.version!==accepted.version||
+      intent.sha256!==accepted.sha256||intent.bytes!==accepted.bytes||
+      typeof intent.editorId!=='string'||!/^\d+$/.test(intent.editorId)||
+      typeof intent.confirmedAt!=='string'||!/Z$/.test(intent.confirmedAt)||
+      !Number.isFinite(Date.parse(intent.confirmedAt))||
+      Math.abs(Date.now()-Date.parse(intent.confirmedAt))>15*60*1000)return;
+   busy=true;
+   try{
+    const allowed=await onFinalizationIntent({boardId:accepted.boardId,intent});
+    if(closed||!allowed||verifiedVersion!==accepted.version)return;
+    finalizationIntentAccepted=true;
+    win.opener?.postMessage({protocol,kind:'finalization-intent-received',nonce,
+     boardId:accepted.boardId,version:accepted.version,sha256:accepted.sha256,
+     status:'REVIEW_INTENT_ONLY'},accepted.sourceOrigin);
+   }catch{
+    // A failed browser handoff cannot create any approved plan or write.
+   }finally{busy=false;}
+   return;
+  }
   if(kind!=='draft'&&kind!=='revision')return;
   if(kind==='draft'&&accepted||kind==='revision'&&!accepted)return;
   if(accepted&&event.origin!==accepted.sourceOrigin)return;
@@ -30,6 +57,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    if(!validProof(verified,boardId))throw Error('DRAFT validation failed');
    if(accepted&&verified.version<=accepted.version)throw Error('Older or duplicate DRAFT revision');
    if(closed)return;
+   finalizationIntentAccepted=false;
    accepted={boardId,version:verified.version,sha256:verified.sha256,
     bytes:verified.bytes,sourceOrigin:event.origin};
    win.opener?.postMessage({protocol,kind:'received',nonce,version:verified.version,sha256:verified.sha256},event.origin);
