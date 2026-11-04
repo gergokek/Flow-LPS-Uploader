@@ -37,11 +37,13 @@ test('an explicit click and confirmation is required; no Monday write',async()=>
  });
  assert.equal(f.button.disabled,true);
  assert.equal(calls,0);
+ assert.equal(f.seen.length,0);
  assert.equal(f.control.receive(intent),true);
  assert.equal(calls,0);
  assert.equal(f.button.disabled,false);
  await f.click();
  assert.equal(calls,1);
+ assert.equal(f.seen.length,1);
  assert.match(f.output.textContent,/Approved Plan létrehozva/);
  assert.match(f.output.textContent,/NEM INDULT EL/);
  assert.equal(f.button.disabled,true);
@@ -55,6 +57,7 @@ test('declined confirmation performs no action and can still be confirmed later'
  f.control.receive(intent);
  await f.click();
  assert.equal(calls,0);
+ assert.equal(f.seen.length,0);
  assert.equal(f.button.disabled,false);
  yes=true;
  await f.click();
