@@ -166,3 +166,54 @@ test('verified Approved Plan may be sent only after current DRAFT finalization i
  receiver.close();
  assert.equal(receiver.publishApprovedSyncPreview(result),false);
 });
+
+test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never approve writes',async()=>{
+ const f=fixture(),reports=[];
+ const receiver=attachDraftHandoff({win:f.win,onDraft:async()=>valid(),
+  onFinalizationIntent:async()=>true,
+  onSyncDryRunVerified:x=>reports.push(x)});
+ await f.send(transferred(f));
+ receiver.publishVerifiedReceipt(save());
+ const intent={schemaVersion:1,format:'flow-lps-draft-finalization-intent',
+  status:'INTENT_ONLY',boardId,version:5,sha256:hash,bytes,
+  editorId:'96423073',confirmedAt:new Date().toISOString(),
+  isApprovedPlan:false,mondaySyncAllowed:false,approvalEligible:false};
+ await f.send({source:f.opener,origin:'https://monday.example.com',
+  data:{protocol,kind:'finalization-intent',nonce,boardId,intent}});
+ const name='approved-v5-'+hash.slice(0,24)+'.json',approvedHash='b'.repeat(64);
+ const result={status:'APPROVED_PLAN_STORED',boardId,version:5,sha256:approvedHash,
+  sourceDraftSha256:hash,verification:'content-sha256-and-etag',
+  name,id:'approved-item',eTag:'approved-etag',
+  path:'Projects/'+boardId+'/Approved-Plans/'+name,mondaySyncAllowed:false,
+  approvedPlan:{schemaVersion:1,format:'flow-lps-approved-plan',
+   status:'APPROVED',isApprovedPlan:true,mondaySyncAllowed:false,
+   boardId,draftVersion:5,sourceDraft:{sha256:hash}}};
+ assert.equal(receiver.publishApprovedSyncPreview(result),true);
+ assert.equal(receiver.publishApprovedSyncPreview(result),false);
+ const report={schemaVersion:1,format:'flow-lps-sync-preparation-report',
+  status:'BOARD_PRECHECK_ONLY',boardId,draftVersion:5,
+  sourceDraftSha256:hash,approvedPlanSha256:approvedHash,
+  approvedFile:name,approvedETag:'approved-etag',
+  sourceFingerprint:'{"id":"5107075373","tasks":[]}',
+  editorId:'96423073',checkedAt:new Date().toISOString(),
+  totalTasks:193,changedTasks:193,fieldChanges:434,
+  fieldCounts:[{field:'forecast',tasks:193},{field:'endWeek',tasks:193},
+   {field:'critical',tasks:48}],
+  checks:{currentMondaySnapshot:'matched',columnEncoding:'passed'},
+  mondaySyncAllowed:false,mondayWritten:false,mutationCount:0};
+ const evt=(r,origin='https://monday.example.com')=>({
+  source:f.opener,origin,data:{protocol,kind:'sync-dry-run-verified',
+   nonce,boardId,report:r}});
+ await f.send(evt(report,'https://attacker.example.com'));
+ await f.send(evt({...report,mondayWritten:true}));
+ await f.send(evt({...report,approvedETag:'replaced'}));
+ await f.send(evt({...report,fieldChanges:435}));
+ assert.equal(reports.length,0);
+ await f.send(evt(report));
+ assert.equal(reports.length,1);
+ assert.equal(reports[0].approvedSha256,approvedHash);
+ assert.equal(reports[0].report.mutationCount,0);
+ await f.send(evt(report));
+ assert.equal(reports.length,1);
+ receiver.close();
+});
