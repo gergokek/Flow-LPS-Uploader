@@ -4,10 +4,10 @@ import {saveApprovedPlan} from './approved-plan-save.js';
 // The DRAFT is verified directly with Graph again by saveApprovedPlan.
 export function mountApprovedPlanAction({
  button,output,getCurrent,getAccessToken,confirm,
- driveId,tenantId,save=saveApprovedPlan
+ driveId,tenantId,save=saveApprovedPlan,onStored=()=>{}
 }={}){
  if(!button||!output||typeof getCurrent!=='function'||typeof getAccessToken!=='function'||
-    typeof confirm!=='function'||typeof save!=='function')
+    typeof confirm!=='function'||typeof save!=='function'||typeof onStored!=='function')
   throw Error('Hibas Approved Plan felulet.');
  let pending=null,busy=false,completed=null,sequence=0;
  const matching=(c,p)=>!!c?.content&&!!c?.saved&&!!c?.validated&&!!c?.account&&
@@ -80,6 +80,7 @@ export function mountApprovedPlanAction({
      'Ellenőrizd közvetlenül a SharePoint Approved-Plans mappát. Fájl: '+result.name;
     return;
    }
+   try{onStored(result);}catch{/* Preview-display failures must not change the verified SharePoint result. */}
    output.textContent='Approved Plan létrehozva és Graph SHA-256/eTag visszaellenőrizve.'+
     '\nFájl: '+result.path+
     '\nSHA-256: '+result.sha256+'\neTag: '+result.eTag+
