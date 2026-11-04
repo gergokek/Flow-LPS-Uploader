@@ -1,15 +1,15 @@
 const protocol='flow-lps-draft-handoff-v1';
 const nonceRegex=/^[0-9a-f-]{36}$/i;
 // Verified receipts are UI feedback only. They do not authorize Monday writes.
-export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{},onFinalizationIntent=async()=>false}={}){
+export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{},onFinalizationIntent=async()=>false,onSyncDryRunVerified=()=>{}}={}){
  if(!win||typeof win.addEventListener!=='function'||typeof onDraft!=='function'||
     typeof onRevision!=='function'||typeof onAcceptedRevision!=='function'||
-    typeof onFinalizationIntent!=='function')throw Error('Invalid handoff receiver');
+    typeof onFinalizationIntent!=='function'||typeof onSyncDryRunVerified!=='function')throw Error('Invalid handoff receiver');
  const params=new URLSearchParams((win.location.hash||'').replace(/^#/,''));
  const nonce=params.get('draft-handoff');
  if(!nonce||!nonceRegex.test(nonce)||!win.opener)
   return Object.freeze({active:false,close:()=>{},publishVerifiedReceipt:()=>false});
- let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false;
+ let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null;
  const close=()=>{closed=true;win.removeEventListener('message',handler);};
  const validProof=(proof,boardId)=>proof&&proof.boardId===boardId&&
   Number.isSafeInteger(proof.version)&&proof.version>0&&
@@ -45,6 +45,41 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    }finally{busy=false;}
    return;
   }
+  if(kind==='sync-dry-run-verified'){
+   const report=event.data?.report,pending=syncPreviewPending;
+   if(!pending||!accepted||event.origin!==accepted.sourceOrigin||
+      !finalizationIntentAccepted||verifiedVersion!==accepted.version||
+      event.data.boardId!==accepted.boardId||
+      report?.schemaVersion!==1||report.format!=='flow-lps-sync-preparation-report'||
+      report.status!=='BOARD_PRECHECK_ONLY'||report.mondaySyncAllowed!==false||
+      report.mondayWritten!==false||report.mutationCount!==0||
+      report.boardId!==accepted.boardId||
+      report.draftVersion!==accepted.version||
+      report.sourceDraftSha256!==accepted.sha256||
+      report.approvedPlanSha256!==pending.sha256||
+      report.approvedFile!==pending.name||report.approvedETag!==pending.eTag||
+      typeof report.sourceFingerprint!=='string'||report.sourceFingerprint.length<10||
+      typeof report.editorId!=='string'||!/^\d+$/.test(report.editorId)||
+      typeof report.checkedAt!=='string'||!/Z$/.test(report.checkedAt)||
+      !Number.isFinite(Date.parse(report.checkedAt))||
+      Math.abs(Date.now()-Date.parse(report.checkedAt))>10*60*1000||
+      report.checks?.currentMondaySnapshot!=='matched'||
+      report.checks?.columnEncoding!=='passed'||
+      !Number.isSafeInteger(report.totalTasks)||report.totalTasks<1||
+      !Number.isSafeInteger(report.changedTasks)||report.changedTasks<1||
+      report.changedTasks>report.totalTasks||
+      !Number.isSafeInteger(report.fieldChanges)||report.fieldChanges<report.changedTasks||
+      !Array.isArray(report.fieldCounts)||
+      report.fieldCounts.reduce((n,f)=>n+f.tasks,0)!==report.fieldChanges)
+    return;
+   syncPreviewPending=null;
+   try{onSyncDryRunVerified(Object.freeze({
+    boardId:accepted.boardId,report,
+    approvedName:pending.name,approvedSha256:pending.sha256,
+    approvedETag:pending.eTag
+   }));}catch{/* No checkpoint is authorized by a display callback failure. */}
+   return;
+  }
   if(kind!=='draft'&&kind!=='revision')return;
   if(kind==='draft'&&accepted||kind==='revision'&&!accepted)return;
   if(accepted&&event.origin!==accepted.sourceOrigin)return;
@@ -57,7 +92,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    if(!validProof(verified,boardId))throw Error('DRAFT validation failed');
    if(accepted&&verified.version<=accepted.version)throw Error('Older or duplicate DRAFT revision');
    if(closed)return;
-   finalizationIntentAccepted=false;
+   finalizationIntentAccepted=false;syncPreviewPending=null;
    accepted={boardId,version:verified.version,sha256:verified.sha256,
     bytes:verified.bytes,sourceOrigin:event.origin};
    win.opener?.postMessage({protocol,kind:'received',nonce,version:verified.version,sha256:verified.sha256},event.origin);
@@ -86,6 +121,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
  }
  function publishApprovedSyncPreview(result){
   const plan=result?.approvedPlan;
+  if(syncPreviewPending)return false;
   if(closed||busy||!accepted||verifiedVersion!==accepted.version||
      !finalizationIntentAccepted||
      result?.status!=='APPROVED_PLAN_STORED'||
@@ -107,6 +143,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
   try{
    const contents=JSON.stringify(plan);
    if(contents.length>5_000_000)return false;
+   syncPreviewPending={sha256:result.sha256,name:result.name,eTag:result.eTag};
    win.opener.postMessage({protocol,kind:'approved-sync-dry-run',nonce,
     boardId:accepted.boardId,approvedPlan:plan,receipt:{
      status:result.status,boardId:result.boardId,version:result.version,
@@ -116,7 +153,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
      verification:result.verification,mondaySyncAllowed:false
     }},accepted.sourceOrigin);
    return true;
-  }catch{return false;}
+  }catch{syncPreviewPending=null;return false;}
  }
  return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview});
 }
