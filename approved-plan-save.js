@@ -44,11 +44,16 @@ async function graph(fetcher,rootUrl,path,getAccessToken,options={}){
 }
 export async function saveApprovedPlan({
  draftText,saved,intent,boardId,driveId,tenantId,accountTenantId,
- getAccessToken,fetcher=fetch,now=()=>new Date(),inspect=inspectSavedDraftForReview
+ getAccessToken,fetcher=fetch,now=()=>new Date(),inspect=inspectSavedDraftForReview,
+ assertCurrent=()=>true
 }={}){
  if(typeof fetcher!=='function'||typeof getAccessToken!=='function'||typeof inspect!=='function'||
+    typeof assertCurrent!=='function'||
     !/^b![-_A-Za-z0-9]+$/.test(driveId||'')||!/^\d{5,20}$/.test(boardId||''))
   throw Error('Hibas SharePoint kapcsolat vagy boardazonosito.');
+ const requireCurrent=()=>{if(assertCurrent()!==true)
+  throw Error('A DRAFT vagy a Microsoft-munkamenet idokozben megvaltozott; nincs jovahagyasi iras.');};
+ requireCurrent();
  const time=now(),millis=time instanceof Date?time.getTime():Date.parse(time);
  if(!Number.isFinite(millis))throw Error('Ervenytelen veglegesitesi ido.');
  const summary=await validateEditedDraft(draftText,boardId);
@@ -65,6 +70,7 @@ export async function saveApprovedPlan({
   !/^[0-9a-f-]{36}$/i.test(report.identity?.objectId||''))
   throw Error('A friss Graph DRAFT-visszaolvasas vagy Entra azonossag nem igazolt.');
  checkIntent(intent,summary,saved,boardId,Date.now());
+ requireCurrent();
  const draft=JSON.parse(draftText);
  const approvedAt=new Date(millis).toISOString();
  const plan={
@@ -108,6 +114,7 @@ export async function saveApprovedPlan({
  }
  // Graph upload session with conflictBehavior=fail protects the destination.
  // A failed or uncertain upload is NEVER automatically retried.
+ requireCurrent();
  const sessionRes=await graph(fetcher,base,
   '/items/'+encodeURIComponent(folder.id)+':/'+encodeURIComponent(name)+':/createUploadSession',
   getAccessToken,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -118,6 +125,7 @@ export async function saveApprovedPlan({
  const expiry=Date.parse(session?.expirationDateTime);
  if(!Number.isFinite(expiry)||expiry<=Date.now())
   throw Error('A Graph feltoltesi munkamenet lejart.');
+ requireCurrent();
  let created;
  try{
   const uploaded=await fetcher(uploadUrl,{method:'PUT',mode:'cors',cache:'no-store',
