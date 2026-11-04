@@ -58,7 +58,7 @@ function network({existing=false,modified=false,wrongHost=false,status=201,badFo
      folder:badFolder?null:{childCount:0},parentReference:{driveId}})};
    }
    if(url.includes('/Approved-Plans/')&&url.includes('?$select=id,name,size')){
-    fileName=decodeURIComponent(url.split('/').at(-1).split(':?')[0].replace(/:$/,''));
+    fileName=decodeURIComponent(url.split('/').at(-1).split('?')[0].replace(/:$/,''));
     return {ok:existing,status:existing?200:404,
      json:async()=>existing?{id,name:fileName,size:123}:{}};
    }
