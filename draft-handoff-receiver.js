@@ -84,5 +84,39 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
   verifiedVersion=saved.version;
   return true;
  }
- return Object.freeze({active:true,close,publishVerifiedReceipt});
+ function publishApprovedSyncPreview(result){
+  const plan=result?.approvedPlan;
+  if(closed||busy||!accepted||verifiedVersion!==accepted.version||
+     !finalizationIntentAccepted||
+     result?.status!=='APPROVED_PLAN_STORED'||
+     result.boardId!==accepted.boardId||result.version!==accepted.version||
+     result.sourceDraftSha256!==accepted.sha256||
+     result.verification!=='content-sha256-and-etag'||
+     result.mondaySyncAllowed!==false||
+     !/^[a-f0-9]{64}$/.test(result.sha256||'')||
+     typeof result.id!=='string'||!result.id||
+     typeof result.eTag!=='string'||!result.eTag||
+     !plan||plan.format!=='flow-lps-approved-plan'||plan.status!=='APPROVED'||
+     plan.isApprovedPlan!==true||plan.mondaySyncAllowed!==false||
+     plan.boardId!==accepted.boardId||plan.draftVersion!==accepted.version||
+     plan.sourceDraft?.sha256!==accepted.sha256)return false;
+  const name='approved-v'+accepted.version+'-'+accepted.sha256.slice(0,24)+'.json';
+  if(result.name!==name||
+     result.path!=='Projects/'+accepted.boardId+'/Approved-Plans/'+name)
+   return false;
+  try{
+   const contents=JSON.stringify(plan);
+   if(contents.length>5_000_000)return false;
+   win.opener.postMessage({protocol,kind:'approved-sync-dry-run',nonce,
+    boardId:accepted.boardId,approvedPlan:plan,receipt:{
+     status:result.status,boardId:result.boardId,version:result.version,
+     sourceDraftSha256:result.sourceDraftSha256,
+     sha256:result.sha256,eTag:result.eTag,id:result.id,
+     name:result.name,path:result.path,
+     verification:result.verification,mondaySyncAllowed:false
+    }},accepted.sourceOrigin);
+   return true;
+  }catch{return false;}
+ }
+ return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview});
 }
