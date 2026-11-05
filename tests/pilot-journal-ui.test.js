@@ -12,7 +12,9 @@ const entry={schemaVersion:1,format:'flow-lps-single-task-write-ahead',
 const ahead={status:'WRITE_AHEAD_VERIFIED',boardId,taskId:'101',
  approvedSha256:approvedSha,checkpointSha256:cpSha,
  sha256:'d'.repeat(64),id:'ahead-id',eTag:'etag-ahead',
- verification:'content-sha256-and-etag',mondayWriteLimit:1};
+ verification:'content-sha256-and-etag',mondayWriteLimit:1,
+ name:'sync-one-'+approvedSha.slice(0,24)+'-ahead.json',
+ path:'Projects/'+boardId+'/Sync-Status/sync-one-'+approvedSha.slice(0,24)+'-ahead.json'};
 const journalResult={...ahead,status:'ITEM_RESULT_VERIFIED',
  sha256:'e'.repeat(64),id:'result-id',eTag:'etag-result'};
 const resultEntry={schemaVersion:1,format:'flow-lps-single-task-result',
