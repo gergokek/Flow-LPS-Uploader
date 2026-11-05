@@ -269,7 +269,9 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
  await f.send(pilotEvent('pilot-result-request',resultEntry));
  assert.equal(resultRequests.length,1);
  const resultReceipt={...aheadReceipt,status:'ITEM_RESULT_VERIFIED',
-  sha256:'e'.repeat(64),id:'sp-result',eTag:'etag-result'};
+  sha256:'e'.repeat(64),id:'sp-result',eTag:'etag-result',
+  name:'sync-one-'+approvedHash.slice(0,24)+'-result.json',
+  path:'Projects/'+boardId+'/Sync-Status/sync-one-'+approvedHash.slice(0,24)+'-result.json'};
  assert.equal(receiver.publishPilotResult(resultReceipt,pilotRequestId),true);
  assert.equal(f.posts.at(-1).data.kind,'pilot-result-verified');
  await f.send(pilotEvent('pilot-write-ahead-request',entry));
