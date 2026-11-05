@@ -131,7 +131,7 @@ export function createSingleTaskJournal({boardId,driveId,getAccessToken,fetcher=
      checkpoint.progress.verifiedTaskIds.length!==0)
    throw Error('A tartos checkpoint nem hasznalhato egyfeladatos pilothoz.');
   if(kind==='result'){
-   const aheadName='sync-one-'+prefix+'-task-'+entry.taskId+'-ahead.json';
+   const aheadName='sync-one-'+prefix+'-ahead.json';
    const ahead=await readVerified(aheadName,aheadReceipt);
    if(ahead?.format!=='flow-lps-single-task-write-ahead'||
       ahead.status!=='WRITE_AHEAD'||ahead.taskId!==entry.taskId||
@@ -140,7 +140,7 @@ export function createSingleTaskJournal({boardId,driveId,getAccessToken,fetcher=
     throw Error('Az iras elotti naplo nem igazolt.');
   }
   requireCurrent();
-  const name='sync-one-'+prefix+'-task-'+entry.taskId+'-'+
+  const name='sync-one-'+prefix+'-'+
    (kind==='ahead'?'ahead':'result')+'.json';
   const fullPath='Projects/'+boardId+'/Sync-Status/'+name;
   const target=path([...folder,name]);
