@@ -139,6 +139,19 @@ export function createSingleTaskJournal({boardId,driveId,getAccessToken,fetcher=
       ahead.approvedSha256!==approvedReceipt.sha256)
     throw Error('Az iras elotti naplo nem igazolt.');
   }
+  // Re-check Entra /me with the delegated Graph account before each
+  // irreversible journal file; browsing claims are not identity evidence.
+  if(!/^[a-f0-9-]{36}$/i.test(checkpoint.preparedByEntraObjectId||''))
+   throw Error('Az eredeti SharePoint checkpoint Microsoft-identitasa hianyzik.');
+  const who=await fetcher('https://graph.microsoft.com/v1.0/me?$select=id',{
+   method:'GET',cache:'no-store',redirect:'error',
+   headers:{Authorization:'Bearer '+await getAccessToken(),Accept:'application/json'}
+  });
+  if(!who.ok)throw Error('Graph Entra-identitas ellenorzese HTTP '+who.status);
+  const user=await who.json();
+  if(String(user?.id||'').toLowerCase()!==
+     checkpoint.preparedByEntraObjectId.toLowerCase())
+   throw Error('A Microsoft-felhasznalo elter a SharePoint checkpoint keszitojetol.');
   requireCurrent();
   const name='sync-one-'+prefix+'-'+
    (kind==='ahead'?'ahead':'result')+'.json';
