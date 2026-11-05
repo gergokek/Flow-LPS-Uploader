@@ -60,7 +60,12 @@ function verify({entry,checkpointReceipt,approvedReceipt,boardId,kind,aheadRecei
      aheadReceipt.checkpointSha256!==checkpointReceipt.sha256||
      !hex(aheadReceipt.sha256)||!short(aheadReceipt.id)||!short(aheadReceipt.eTag)||
      aheadReceipt.verification!=='content-sha256-and-etag'||
-     typeof entry.readbackMatches!=='boolean')
+     typeof entry.readbackMatches!=='boolean'||
+     (entry.status==='ITEM_READBACK_VERIFIED'&&
+      (entry.readbackMatches!==true||entry.error!=null))||
+     typeof entry.checkedAt!=='string'||!/Z$/.test(entry.checkedAt)||
+     !Number.isFinite(Date.parse(entry.checkedAt))||
+     Math.abs(Date.now()-Date.parse(entry.checkedAt))>15*60*1000)
    throw Error('Hibas visszaellenorzesi naplo vagy hianyzo iras elotti bizonyitek.');
  }else throw Error('Hibas naplo fazis.');
  return approvedPart;
