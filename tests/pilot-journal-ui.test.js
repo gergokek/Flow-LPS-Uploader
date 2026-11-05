@@ -16,7 +16,9 @@ const ahead={status:'WRITE_AHEAD_VERIFIED',boardId,taskId:'101',
  name:'sync-one-'+approvedSha.slice(0,24)+'-ahead.json',
  path:'Projects/'+boardId+'/Sync-Status/sync-one-'+approvedSha.slice(0,24)+'-ahead.json'};
 const journalResult={...ahead,status:'ITEM_RESULT_VERIFIED',
- sha256:'e'.repeat(64),id:'result-id',eTag:'etag-result'};
+ sha256:'e'.repeat(64),id:'result-id',eTag:'etag-result',
+ name:'sync-one-'+approvedSha.slice(0,24)+'-result.json',
+ path:'Projects/'+boardId+'/Sync-Status/sync-one-'+approvedSha.slice(0,24)+'-result.json'};
 const resultEntry={schemaVersion:1,format:'flow-lps-single-task-result',
  status:'ITEM_READBACK_VERIFIED',boardId,taskId:'101',
  approvedSha256:approvedSha,checkpointSha256:cpSha,
