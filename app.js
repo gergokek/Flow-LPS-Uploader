@@ -8,6 +8,7 @@ import {validateEditedDraft} from './edited-draft-validator.js';
 import {mountSavedDraftReview} from './review-preflight-ui.js';
 import {mountApprovedPlanAction} from './approved-plan-ui.js';
 import {mountSyncCheckpointAction} from './sync-checkpoint-ui.js';
+import {mountSingleTaskJournalControl} from './pilot-journal-ui.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import {createProjectStorage} from './project-storage.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
@@ -355,7 +356,7 @@ editedVerifyButton.addEventListener('click',async()=>{
 
 const syncDryRunButton=document.querySelector('#runApprovedSyncDryRun');
 const syncDryRunOutput=document.querySelector('#approvedSyncDryRunResult');
-let approvedSyncCandidate=null;
+let approvedSyncCandidate=null,pilotCheckpointCandidate=null;
 function invalidateApprovedSyncCandidate(){
  approvedSyncCandidate=null;syncDryRunButton.disabled=true;
  syncDryRunOutput.textContent='Nincs aktuális, visszaellenőrzött Approved Plan a szárazpróbához.';
@@ -436,6 +437,7 @@ const syncCheckpointAction=mountSyncCheckpointAction({
   // This is an informational, origin-bound preview only, NOT Monday authorization.
   if(result?.status==='CHECKPOINT_PREPARED'&&result.checkpoint&&
      approvedSyncCandidate&&draftHandoff.publishVerifiedCheckpoint(result,approvedSyncCandidate)){
+   pilotCheckpointCandidate=result;
    document.querySelector('#syncCheckpointResult').textContent=
     'Checkpoint mentve és visszaellenőrizve: '+result.name+
     '\nA Monday TEST megkapta az egyfeladatos pilot-előnézetet.'+
@@ -444,12 +446,36 @@ const syncCheckpointAction=mountSyncCheckpointAction({
  }
 });
 
+const pilotJournalControl=mountSingleTaskJournalControl({
+ button:document.querySelector('#confirmPilotWriteAhead'),
+ output:document.querySelector('#pilotJournalResult'),
+ driveId,
+ getCurrent:()=>({
+  boardId:projectBoard.value.trim(),
+  approved:approvedSyncCandidate,checkpoint:pilotCheckpointCandidate,
+  validated:editedDraftChecked,saved:savedReview.currentProof(),
+  account:msal.getAllAccounts()[0]||null
+ }),
+ getAccessToken:async account=>{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected',
+   'https://graph.microsoft.com/User.Read'],account,redirectUri};
+  try{return (await msal.acquireTokenSilent(request)).accessToken;}
+  catch(e){
+   if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;
+   return (await msal.acquireTokenPopup(request)).accessToken;
+  }
+ },
+ confirm:message=>window.confirm(message),
+ onAheadVerified:(receipt,id)=>draftHandoff.publishPilotAhead(receipt,id),
+ onResultVerified:(receipt,id)=>draftHandoff.publishPilotResult(receipt,id)
+});
+
 const editedFile=document.querySelector('#editedDraftFile');
 const editedSave=document.querySelector('#saveEditedDraft');
 const editedStatus=document.querySelector('#editedDraftStatus');
 const editedResult=document.querySelector('#editedDraftSaveResult');
 editedFile.addEventListener('change',async()=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();invalidateApprovedSyncCandidate();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();
  document.querySelector('#finalizationIntentResult').textContent='Nincs aktuális véglegesítési kérelem.';
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs feltoltes.';
@@ -511,7 +537,7 @@ autoCheckbox.addEventListener('change',()=>{
  }else sessionAutosave.disable();
 });
 const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();invalidateApprovedSyncCandidate();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
  try{
@@ -525,7 +551,7 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   return {boardId:valid.boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
  }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
 },onRevision:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();invalidateApprovedSyncCandidate();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
  if(boardId!==projectBoard.value.trim())throw Error('Eltero Monday-board.');
  const valid=await validateEditedDraft(content,boardId);
  if(editedDraftChecked&&valid.version<=editedDraftChecked.version)
@@ -559,6 +585,13 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   syncDryRunOutput.textContent='A Monday TEST sikeres szárazpróbája visszaigazolva. '+
    'Most a Sync-Status checkpoint külön gombbal elmenthető; Monday-írás továbbra sincs.';
  }
+},onPilotAheadRequested:request=>{
+ if(!pilotJournalControl.acceptAhead(request)){
+  document.querySelector('#pilotJournalResult').textContent=
+   'Egyfeladatos előnaplózás elutasítva: a DRAFT/Approved Plan/checkpoint vagy a Microsoft-fiók nem egyezik.';
+ }
+},onPilotResultRequested:request=>{
+ void pilotJournalControl.acceptResult(request);
 },onAcceptedRevision:work=>{
  if(sessionAutosave.state().enabled)sessionAutosave.enqueue(work);
  else autoOutput.textContent='Uj DRAFT v'+work.version+' erkezett. Automatikus mentes nincs engedelyezve; kezi mentes szukseges.';
