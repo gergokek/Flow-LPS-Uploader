@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {createSingleTaskJournal} from '../sync-single-task-journal.js';
 
 const boardId='5107075373',driveId='b!fake';
-const approvedHash='b'.repeat(64),cpHashPlaceholder='c'.repeat(64);
+const approvedHash='b'.repeat(64),cpHashPlaceholder='c'.repeat(64),
+ objectId='e4c642e2-d5c5-40f7-b32c-af82bc281002';
 const bytes=x=>new TextEncoder().encode(JSON.stringify(x,null,2)+'\n');
 const sha=async x=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',x)),
  n=>n.toString(16).padStart(2,'0')).join('');
@@ -11,6 +12,7 @@ async function fixture(){
  const cp={
   schemaVersion:1,format:'flow-lps-sync-checkpoint',
   status:'PREPARED_NO_WRITES',boardId,
+  preparedByEntraObjectId:objectId,
   mondaySourceFingerprint:'some-source-fingerprint',
   approvedPlan:{sha256:approvedHash},
   writeAuthorization:'NOT_GRANTED',
@@ -36,7 +38,7 @@ async function fixture(){
   actualMondayWrites:0};
  return {cp,cpBytes,checkpointReceipt,approvedReceipt,entry};
 }
-function mock(f,{unknownDownload=false,duplicateAhead=false,failUpload=false}={}){
+function mock(f,{unknownDownload=false,duplicateAhead=false,failUpload=false,wrongIdentity=false}={}){
  const contents=new Map([[f.checkpointReceipt.name,f.cpBytes]]);
  const metadata=new Map([[f.checkpointReceipt.name,{
   id:'cp-item',name:f.checkpointReceipt.name,eTag:'cp-etag'}]]);
@@ -68,6 +70,8 @@ function mock(f,{unknownDownload=false,duplicateAhead=false,failUpload=false}={}
    const name=decodeURIComponent(uri.split('/').at(-1).split('?')[0]);
    return bytesRes(contents.get(name));
   }
+  if(uri==='https://graph.microsoft.com/v1.0/me?$select=id')
+   return response({id:wrongIdentity?'11111111-1111-4111-8111-111111111111':objectId});
   if(!uri.startsWith(base))throw Error('Unexpected URL '+uri);
   if(uri.endsWith('/createUploadSession')){
    const name=JSON.parse(options.body).item.name;
@@ -152,7 +156,7 @@ test('forged phases and mismatching checkpoint never produce a journal write',as
 });
 test('tampered downloaded checkpoint and uncertain upload never yield verified proof',async()=>{
  const f=await fixture();
- for(const options of [{unknownDownload:true},{failUpload:true}]){
+ for(const options of [{unknownDownload:true},{failUpload:true},{wrongIdentity:true}]){
   const m=mock(f,options),journal=createSingleTaskJournal({boardId,driveId,
    getAccessToken:async()=> 'token',fetcher:m.fetcher});
   await assert.rejects(()=>journal.recordAhead({entry:f.entry,
