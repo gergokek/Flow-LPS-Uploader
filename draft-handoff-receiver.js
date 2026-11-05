@@ -265,6 +265,8 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
      receipt.verification!=='content-sha256-and-etag'||
      receipt.mondayWriteLimit!==1||
      !/^[a-f0-9]{64}$/.test(receipt.sha256||'')||!receipt.id||!receipt.eTag)return false;
+  const name='sync-one-'+p.entry.approvedSha256.slice(0,24)+'-ahead.json';
+  if(receipt.name!==name||receipt.path!=='Projects/'+accepted.boardId+'/Sync-Status/'+name)return false;
   p.phase='AHEAD_CONFIRMED';p.receipt=receipt;
   try{
    win.opener.postMessage({protocol,kind:'pilot-write-ahead-verified',nonce,
@@ -282,6 +284,8 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
      receipt.checkpointSha256!==p.entry.checkpointSha256||
      receipt.verification!=='content-sha256-and-etag'||receipt.mondayWriteLimit!==1||
      !/^[a-f0-9]{64}$/.test(receipt.sha256||'')||!receipt.id||!receipt.eTag)return false;
+  const name='sync-one-'+p.entry.approvedSha256.slice(0,24)+'-result.json';
+  if(receipt.name!==name||receipt.path!=='Projects/'+accepted.boardId+'/Sync-Status/'+name)return false;
   p.phase='RESULT_RECORDED';
   try{
    win.opener.postMessage({protocol,kind:'pilot-result-verified',nonce,
