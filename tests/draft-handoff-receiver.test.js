@@ -168,10 +168,12 @@ test('verified Approved Plan may be sent only after current DRAFT finalization i
 });
 
 test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never approve writes',async()=>{
- const f=fixture(),reports=[];
+ const f=fixture(),reports=[],aheadRequests=[],resultRequests=[];
  const receiver=attachDraftHandoff({win:f.win,onDraft:async()=>valid(),
   onFinalizationIntent:async()=>true,
-  onSyncDryRunVerified:x=>reports.push(x)});
+  onSyncDryRunVerified:x=>reports.push(x),
+  onPilotAheadRequested:x=>aheadRequests.push(x),
+  onPilotResultRequested:x=>resultRequests.push(x)});
  await f.send(transferred(f));
  receiver.publishVerifiedReceipt(save());
  const intent={schemaVersion:1,format:'flow-lps-draft-finalization-intent',
@@ -187,7 +189,8 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
   path:'Projects/'+boardId+'/Approved-Plans/'+name,mondaySyncAllowed:false,
   approvedPlan:{schemaVersion:1,format:'flow-lps-approved-plan',
    status:'APPROVED',isApprovedPlan:true,mondaySyncAllowed:false,
-   boardId,draftVersion:5,sourceDraft:{sha256:hash}}};
+   boardId,draftVersion:5,sourceDraft:{sha256:hash},
+   plan:{base:{tasks:[{id:'101',note:'old'}]},working:[{id:'101',note:'changed'}]}}};
  assert.equal(receiver.publishApprovedSyncPreview(result),true);
  assert.equal(receiver.publishApprovedSyncPreview(result),false);
  const report={schemaVersion:1,format:'flow-lps-sync-preparation-report',
@@ -218,6 +221,7 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
  const cpName='sync-prepared-v5-'+approvedHash.slice(0,24)+'.json';
  const checkpoint={schemaVersion:1,format:'flow-lps-sync-checkpoint',
   status:'PREPARED_NO_WRITES',boardId,
+  mondaySourceFingerprint:report.sourceFingerprint,
   approvedPlan:{sha256:approvedHash,name,eTag:'approved-etag'},
   writeAuthorization:'NOT_GRANTED',mondaySyncAllowed:false,mondayWritten:false,
   progress:{cursor:0,mondayWrites:0,inFlight:null,verifiedTaskIds:[]}};
@@ -232,5 +236,41 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
  assert.equal(f.posts.at(-1).data.kind,'sync-checkpoint-preview');
  assert.equal(f.posts.at(-1).data.checkpoint.status,'PREPARED_NO_WRITES');
  assert.equal(receiver.publishVerifiedCheckpoint(cpResult,result),false);
+ const pilotRequestId='22222222-2222-4222-8222-222222222222';
+ const entry={schemaVersion:1,format:'flow-lps-single-task-write-ahead',
+  status:'WRITE_AHEAD',boardId,taskId:'101',approvedSha256:approvedHash,
+  checkpointSha256:cpResult.sha256,sourceFingerprint:report.sourceFingerprint,
+  fieldNames:['note'],checkedAt:new Date().toISOString(),
+  maximumMondayWrites:1,actualMondayWrites:0};
+ const pilotEvent=(kind,e,origin='https://monday.example.com')=>({
+  source:f.opener,origin,data:{protocol,kind,nonce,boardId,
+   requestId:pilotRequestId,entry:e}});
+ await f.send(pilotEvent('pilot-write-ahead-request',entry,'https://attacker.example'));
+ await f.send(pilotEvent('pilot-write-ahead-request',{...entry,checkpointSha256:'d'.repeat(64)}));
+ assert.equal(aheadRequests.length,0);
+ await f.send(pilotEvent('pilot-write-ahead-request',entry));
+ assert.equal(aheadRequests.length,1);
+ const aheadReceipt={status:'WRITE_AHEAD_VERIFIED',boardId,taskId:'101',
+  approvedSha256:approvedHash,checkpointSha256:cpResult.sha256,
+  verification:'content-sha256-and-etag',mondayWriteLimit:1,
+  sha256:'d'.repeat(64),id:'sp-ahead',eTag:'etag-ahead'};
+ assert.equal(receiver.publishPilotAhead({...aheadReceipt,taskId:'999'},pilotRequestId),false);
+ assert.equal(receiver.publishPilotAhead(aheadReceipt,pilotRequestId),true);
+ assert.equal(f.posts.at(-1).data.kind,'pilot-write-ahead-verified');
+ assert.equal(receiver.publishPilotAhead(aheadReceipt,pilotRequestId),false);
+ const resultEntry={schemaVersion:1,format:'flow-lps-single-task-result',
+  status:'ITEM_READBACK_VERIFIED',boardId,taskId:'101',approvedSha256:approvedHash,
+  checkpointSha256:cpResult.sha256,writeAheadSha256:aheadReceipt.sha256,
+  mondayWritesAttempted:1,readbackMatches:true};
+ await f.send(pilotEvent('pilot-result-request',{...resultEntry,writeAheadSha256:'bad'}));
+ assert.equal(resultRequests.length,0);
+ await f.send(pilotEvent('pilot-result-request',resultEntry));
+ assert.equal(resultRequests.length,1);
+ const resultReceipt={...aheadReceipt,status:'ITEM_RESULT_VERIFIED',
+  sha256:'e'.repeat(64),id:'sp-result',eTag:'etag-result'};
+ assert.equal(receiver.publishPilotResult(resultReceipt,pilotRequestId),true);
+ assert.equal(f.posts.at(-1).data.kind,'pilot-result-verified');
+ await f.send(pilotEvent('pilot-write-ahead-request',entry));
+ assert.equal(aheadRequests.length,1);
  receiver.close();
 });
