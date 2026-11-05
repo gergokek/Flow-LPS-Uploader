@@ -1,15 +1,16 @@
 const protocol='flow-lps-draft-handoff-v1';
 const nonceRegex=/^[0-9a-f-]{36}$/i;
 // Verified receipts are UI feedback only. They do not authorize Monday writes.
-export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{},onFinalizationIntent=async()=>false,onSyncDryRunVerified=()=>{}}={}){
+export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{},onFinalizationIntent=async()=>false,onSyncDryRunVerified=()=>{},onPilotAheadRequested=()=>{},onPilotResultRequested=()=>{}}={}){
  if(!win||typeof win.addEventListener!=='function'||typeof onDraft!=='function'||
     typeof onRevision!=='function'||typeof onAcceptedRevision!=='function'||
-    typeof onFinalizationIntent!=='function'||typeof onSyncDryRunVerified!=='function')throw Error('Invalid handoff receiver');
+    typeof onFinalizationIntent!=='function'||typeof onSyncDryRunVerified!=='function'||
+    typeof onPilotAheadRequested!=='function'||typeof onPilotResultRequested!=='function')throw Error('Invalid handoff receiver');
  const params=new URLSearchParams((win.location.hash||'').replace(/^#/,''));
  const nonce=params.get('draft-handoff');
  if(!nonce||!nonceRegex.test(nonce)||!win.opener)
   return Object.freeze({active:false,close:()=>{},publishVerifiedReceipt:()=>false});
- let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null,lastPreviewAck=null,checkpointPublished=false;
+ let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null,lastPreviewAck=null,checkpointPublished=false,lastCheckpoint=null,pilotPending=null;
  const close=()=>{closed=true;win.removeEventListener('message',handler);};
  const validProof=(proof,boardId)=>proof&&proof.boardId===boardId&&
   Number.isSafeInteger(proof.version)&&proof.version>0&&
@@ -43,6 +44,51 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    }catch{
     // A failed browser handoff cannot create any approved plan or write.
    }finally{busy=false;}
+   return;
+  }
+  if(kind==='pilot-write-ahead-request'){
+   const entry=event.data?.entry,requestId=event.data?.requestId;
+   if(!accepted||event.origin!==accepted.sourceOrigin||!checkpointPublished||
+      !lastCheckpoint||pilotPending||verifiedVersion!==accepted.version||
+      !finalizationIntentAccepted||event.data.boardId!==accepted.boardId||
+      typeof requestId!=='string'||!/^[a-f0-9-]{36}$/i.test(requestId)||
+      entry?.schemaVersion!==1||entry.format!=='flow-lps-single-task-write-ahead'||
+      entry.status!=='WRITE_AHEAD'||entry.boardId!==accepted.boardId||
+      !/^\d+$/.test(entry.taskId||'')||
+      entry.approvedSha256!==lastCheckpoint.approved.sha256||
+      entry.checkpointSha256!==lastCheckpoint.checkpoint.sha256||
+      entry.sourceFingerprint!==lastCheckpoint.checkpoint.checkpoint.mondaySourceFingerprint||
+      entry.maximumMondayWrites!==1||entry.actualMondayWrites!==0||
+      !Array.isArray(entry.fieldNames)||entry.fieldNames.length<1||
+      entry.fieldNames.length>20||
+      !lastCheckpoint.approved.approvedPlan.plan?.working?.some(t=>t.id===entry.taskId)||
+      typeof entry.checkedAt!=='string'||!/Z$/.test(entry.checkedAt)||
+      !Number.isFinite(Date.parse(entry.checkedAt))||
+      Math.abs(Date.now()-Date.parse(entry.checkedAt))>5*60*1000)return;
+   // One request may be prepared in a session. A crash after the write-ahead
+   // file was persisted must never silently create a second attempt.
+   pilotPending={requestId,entry,phase:'WAITING_AHEAD',receipt:null};
+   try{onPilotAheadRequested(Object.freeze({requestId,entry}));}
+   catch{pilotPending.phase='STOPPED';}
+   return;
+  }
+  if(kind==='pilot-result-request'){
+   const entry=event.data?.entry,requestId=event.data?.requestId,p=pilotPending;
+   if(!p||p.phase!=='AHEAD_CONFIRMED'||!accepted||
+      event.origin!==accepted.sourceOrigin||!lastCheckpoint||
+      !checkpointPublished||verifiedVersion!==accepted.version||
+      event.data.boardId!==accepted.boardId||requestId!==p.requestId||
+      entry?.schemaVersion!==1||entry.format!=='flow-lps-single-task-result'||
+      !['ITEM_READBACK_VERIFIED','ITEM_UNCERTAIN'].includes(entry.status)||
+      entry.boardId!==accepted.boardId||entry.taskId!==p.entry.taskId||
+      entry.approvedSha256!==p.entry.approvedSha256||
+      entry.checkpointSha256!==p.entry.checkpointSha256||
+      entry.writeAheadSha256!==p.receipt.sha256||
+      entry.mondayWritesAttempted!==1||
+      typeof entry.readbackMatches!=='boolean')return;
+   p.phase='RESULT_PENDING';
+   try{onPilotResultRequested(Object.freeze({requestId,entry,aheadReceipt:p.receipt}));}
+   catch{p.phase='STOPPED';}
    return;
   }
   if(kind==='sync-dry-run-verified'){
@@ -96,7 +142,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    if(!validProof(verified,boardId))throw Error('DRAFT validation failed');
    if(accepted&&verified.version<=accepted.version)throw Error('Older or duplicate DRAFT revision');
    if(closed)return;
-   finalizationIntentAccepted=false;syncPreviewPending=null;lastPreviewAck=null;checkpointPublished=false;
+   finalizationIntentAccepted=false;syncPreviewPending=null;lastPreviewAck=null;checkpointPublished=false;lastCheckpoint=null;pilotPending=null;
    accepted={boardId,version:verified.version,sha256:verified.sha256,
     bytes:verified.bytes,sourceOrigin:event.origin};
    win.opener?.postMessage({protocol,kind:'received',nonce,version:verified.version,sha256:verified.sha256},event.origin);
@@ -205,8 +251,43 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
      sha256:result.sha256,verification:result.verification,
      mondayWrites:0,mondaySyncAllowed:false
     }},accepted.sourceOrigin);
-   checkpointPublished=true;return true;
+   checkpointPublished=true;lastCheckpoint={checkpoint:result,approved};return true;
   }catch{return false;}
  }
- return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint});
+ function publishPilotAhead(receipt,requestId){
+  const p=pilotPending;
+  if(closed||!accepted||!p||p.phase!=='WAITING_AHEAD'||
+     requestId!==p.requestId||!lastCheckpoint||
+     receipt?.status!=='WRITE_AHEAD_VERIFIED'||receipt.boardId!==accepted.boardId||
+     receipt.taskId!==p.entry.taskId||
+     receipt.approvedSha256!==p.entry.approvedSha256||
+     receipt.checkpointSha256!==p.entry.checkpointSha256||
+     receipt.verification!=='content-sha256-and-etag'||
+     receipt.mondayWriteLimit!==1||
+     !/^[a-f0-9]{64}$/.test(receipt.sha256||'')||!receipt.id||!receipt.eTag)return false;
+  p.phase='AHEAD_CONFIRMED';p.receipt=receipt;
+  try{
+   win.opener.postMessage({protocol,kind:'pilot-write-ahead-verified',nonce,
+    boardId:accepted.boardId,requestId,receipt},accepted.sourceOrigin);
+   return true;
+  }catch{p.phase='STOPPED';return false;}
+ }
+ function publishPilotResult(receipt,requestId){
+  const p=pilotPending;
+  if(closed||!accepted||!p||p.phase!=='RESULT_PENDING'||
+     requestId!==p.requestId||
+     !['ITEM_RESULT_VERIFIED','ITEM_UNCERTAIN_RECORDED'].includes(receipt?.status)||
+     receipt.boardId!==accepted.boardId||receipt.taskId!==p.entry.taskId||
+     receipt.approvedSha256!==p.entry.approvedSha256||
+     receipt.checkpointSha256!==p.entry.checkpointSha256||
+     receipt.verification!=='content-sha256-and-etag'||receipt.mondayWriteLimit!==1||
+     !/^[a-f0-9]{64}$/.test(receipt.sha256||'')||!receipt.id||!receipt.eTag)return false;
+  p.phase='RESULT_RECORDED';
+  try{
+   win.opener.postMessage({protocol,kind:'pilot-result-verified',nonce,
+    boardId:accepted.boardId,requestId,receipt},accepted.sourceOrigin);
+   return true;
+  }catch{return false;}
+ }
+ return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint,publishPilotAhead,publishPilotResult});
 }
