@@ -253,7 +253,9 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
  const aheadReceipt={status:'WRITE_AHEAD_VERIFIED',boardId,taskId:'101',
   approvedSha256:approvedHash,checkpointSha256:cpResult.sha256,
   verification:'content-sha256-and-etag',mondayWriteLimit:1,
-  sha256:'d'.repeat(64),id:'sp-ahead',eTag:'etag-ahead'};
+  sha256:'d'.repeat(64),id:'sp-ahead',eTag:'etag-ahead',
+  name:'sync-one-'+approvedHash.slice(0,24)+'-ahead.json',
+  path:'Projects/'+boardId+'/Sync-Status/sync-one-'+approvedHash.slice(0,24)+'-ahead.json'};
  assert.equal(receiver.publishPilotAhead({...aheadReceipt,taskId:'999'},pilotRequestId),false);
  assert.equal(receiver.publishPilotAhead(aheadReceipt,pilotRequestId),true);
  assert.equal(f.posts.at(-1).data.kind,'pilot-write-ahead-verified');
