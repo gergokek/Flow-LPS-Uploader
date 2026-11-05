@@ -52,7 +52,7 @@ function mock(f,{unknownDownload=false,duplicateAhead=false,failUpload=false}={}
   metadata.set(name,{id:'journal-'+name,name,eTag:'etag-'+name});
  };
  if(duplicateAhead){
-  const name='sync-one-'+approvedHash.slice(0,24)+'-task-101-ahead.json';
+  const name='sync-one-'+approvedHash.slice(0,24)+'-ahead.json';
   createItem(name,bytes(f.entry));
  }
  async function fetcher(uri,options={}){
