@@ -86,10 +86,26 @@ export function makeNextDraft({previous,claim,previousSha256,updated}){
   'A következő módosítás nem folyamatos revízió.');
  inspectRevision(previous,claim,previous.version,previous.session?.parentSha256);
  requireValid(updated?.source===previous.source&&
+  updated.session?.sessionId===claim.sessionId&&
   stable(updated.base)===stable(previous.base)&&
   Array.isArray(updated.history)&&updated.history.length===updated.version&&
   stable(updated.history.slice(0,-1))===stable(previous.history),
   'A DRAFT kiinduló állapotát vagy előzményét megváltoztatták.');
+ const originalIds=previous.working.map(t=>t.id);
+ requireValid(stable(updated.working?.map(t=>t.id))===stable(originalIds),
+  'A DRAFT nem változtathatja meg a feladatok azonosítóját vagy sorrendjét.');
+ for(let i=0;i<originalIds.length;i++){
+  const before=previous.working[i],after=updated.working[i];
+  for(const field of ['name','groupId','group','planned','accepted']){
+   requireValid(stable(after[field])===stable(before[field]),
+    'A DRAFT nem módosíthatja a védett '+field+' mezőt.');
+  }
+ }
+ const event=updated.history.at(-1);
+ requireValid(event?.revision===updated.version&&
+  ['edit','weekly','obstacle','recalculate'].includes(event.type)&&
+  typeof event.at==='string'&&Number.isFinite(Date.parse(event.at)),
+  'Hiányzó vagy érvénytelen DRAFT-parancselőzmény.');
  const result=structuredClone(updated);
  result.session={sessionId:claim.sessionId,planVersion:1,
   revision:updated.version,approvedV0Sha256:claim.approvedV0Sha256,
