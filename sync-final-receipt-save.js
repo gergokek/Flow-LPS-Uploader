@@ -87,7 +87,7 @@ export async function saveFinalSyncReceipt({
  const closure=await requestLiveClosure(ledger);
  check();
  const time=now().getTime(),inspected=Date.parse(closure?.inspectedAt),
-  report=Date.parse(ledger.inspectedAt);
+  boardRead=Date.parse(closure?.boardCheckedAt),report=Date.parse(ledger.inspectedAt);
  strict(Number.isFinite(time)&&Number.isFinite(inspected)&&
   Number.isFinite(report)&&Math.abs(time-report)<=120000&&
   Math.abs(time-inspected)<=120000,
