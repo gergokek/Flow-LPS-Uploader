@@ -36,7 +36,7 @@ const fixture=({existing=false,corrupt=false,uploadError=false}={})=>{
   pilotTaskId:'101',pilotResultSha256:pilotSha,
   ledgerEvidenceSha256:ledgerSha,verifiedBatchTaskCount:11,
   changedTaskCount:12,remainingTaskCount:0,
-  boardFingerprint:fingerprintSha,inspectedAt,
+  boardFingerprint:fingerprintSha,inspectedAt,boardCheckedAt:new Date().toISOString(),
   readOnly:true,mutationAllowed:false,mondayWritesPerformed:0,
   automaticallyResume:false,closureReceiptStored:false,finalized:false};
  let body=null,mutationCount=0,readCount=0;
