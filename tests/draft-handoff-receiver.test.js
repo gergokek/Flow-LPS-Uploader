@@ -168,12 +168,15 @@ test('verified Approved Plan may be sent only after current DRAFT finalization i
 });
 
 test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never approve writes',async()=>{
- const f=fixture(),reports=[],aheadRequests=[],resultRequests=[];
+ const f=fixture(),reports=[],aheadRequests=[],resultRequests=[],batchStarts=[],batchAheads=[],batchResults=[];
  const receiver=attachDraftHandoff({win:f.win,onDraft:async()=>valid(),
   onFinalizationIntent:async()=>true,
   onSyncDryRunVerified:x=>reports.push(x),
   onPilotAheadRequested:x=>aheadRequests.push(x),
-  onPilotResultRequested:x=>resultRequests.push(x)});
+  onPilotResultRequested:x=>resultRequests.push(x),
+  onBatchStartRequested:x=>batchStarts.push(x),
+  onBatchAheadRequested:x=>batchAheads.push(x),
+  onBatchResultRequested:x=>batchResults.push(x)});
  await f.send(transferred(f));
  receiver.publishVerifiedReceipt(save());
  const intent={schemaVersion:1,format:'flow-lps-draft-finalization-intent',
@@ -190,7 +193,8 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
   approvedPlan:{schemaVersion:1,format:'flow-lps-approved-plan',
    status:'APPROVED',isApprovedPlan:true,mondaySyncAllowed:false,
    boardId,draftVersion:5,sourceDraft:{sha256:hash},
-   plan:{base:{tasks:[{id:'101',note:'old'}]},working:[{id:'101',note:'changed'}]}}};
+   plan:{base:{tasks:[{id:'101',note:'old'},{id:'102',note:'old'}]},
+    working:[{id:'101',note:'changed'},{id:'102',note:'changed'}]}}};
  assert.equal(receiver.publishApprovedSyncPreview(result),true);
  assert.equal(receiver.publishApprovedSyncPreview(result),false);
  const report={schemaVersion:1,format:'flow-lps-sync-preparation-report',
@@ -294,5 +298,57 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
  assert.equal(receiver.publishSyncRecovery(recovery),true);
  assert.equal(f.posts.at(-1).data.kind,'sync-recovery-report');
  assert.equal(f.posts.at(-1).origin,'https://monday.example.com');
+ const sessionId='33333333-3333-4333-8333-333333333333';
+ const intent={schemaVersion:1,format:'flow-lps-batch-start-intent',
+  boardId,batchNumber:1,approvedSha256:approvedHash,
+  checkpointSha256:cpResult.sha256,verifiedPilotTaskId:'101',
+  editorId:'96423073',taskCount:1,taskIds:['102']};
+ const batchEvent=(kind,requestId,entry)=>({source:f.opener,
+  origin:'https://monday.example.com',data:{protocol,kind,nonce,
+   boardId,sessionId,requestId,entry}});
+ await f.send(batchEvent('batch-start-request',undefined,undefined));
+ await f.send({source:f.opener,origin:'https://monday.example.com',
+  data:{protocol,kind:'batch-start-request',nonce,boardId,sessionId,intent}});
+ assert.equal(batchStarts.length,1);
+ assert.equal(receiver.publishBatchStart(sessionId),true);
+ assert.equal(f.posts.at(-1).data.kind,'batch-session-verified');
+ const aheadRequestId='44444444-4444-4444-8444-444444444444';
+ const batchAhead={schemaVersion:1,format:'flow-lps-batch-task-ahead',
+  status:'BATCH_WRITE_AHEAD',boardId,taskId:'102',step:1,batchNumber:1,
+  approvedSha256:approvedHash,checkpointSha256:cpResult.sha256,
+  sourceFingerprint:report.sourceFingerprint,
+  fieldNames:['note'],checkedAt:new Date().toISOString(),
+  maximumMondayWrites:1,actualMondayWrites:0};
+ await f.send(batchEvent('batch-ahead-request',aheadRequestId,batchAhead));
+ assert.equal(batchAheads.length,1);
+ const baseName='sync-batch-'+approvedHash.slice(0,24)+'-step-0001-';
+ const batchProof={status:'BATCH_AHEAD_VERIFIED',boardId,taskId:'102',step:1,
+  approvedSha256:approvedHash,checkpointSha256:cpResult.sha256,
+  verification:'content-sha256-and-etag',mondayWriteLimit:1,
+  sha256:'f'.repeat(64),id:'batch-ahead-id',eTag:'batch-ahead-tag',
+  name:baseName+'ahead.json',
+  path:'Projects/'+boardId+'/Sync-Status/'+baseName+'ahead.json'};
+ assert.equal(receiver.publishBatchJournal('ahead',
+  {...batchProof,step:2},aheadRequestId,sessionId),false);
+ assert.equal(receiver.publishBatchJournal('ahead',
+  batchProof,aheadRequestId,sessionId),true);
+ assert.equal(f.posts.at(-1).data.kind,'batch-ahead-verified');
+ const resultRequestId='55555555-5555-4555-8555-555555555555';
+ const batchResult={schemaVersion:1,format:'flow-lps-batch-task-result',
+  status:'BATCH_ITEM_READBACK_VERIFIED',boardId,taskId:'102',
+  step:1,batchNumber:1,approvedSha256:approvedHash,
+  checkpointSha256:cpResult.sha256,writeAheadSha256:batchProof.sha256,
+  mondayWritesAttempted:1,readbackMatches:true,error:null};
+ await f.send(batchEvent('batch-result-request',resultRequestId,batchResult));
+ assert.equal(batchResults.length,1);
+ const resultProof={...batchProof,status:'BATCH_RESULT_VERIFIED',
+  sha256:'0'.repeat(64),id:'batch-result-id',
+  name:baseName+'result.json',
+  path:'Projects/'+boardId+'/Sync-Status/'+baseName+'result.json'};
+ assert.equal(receiver.publishBatchJournal('result',
+  resultProof,resultRequestId,sessionId),true);
+ assert.equal(f.posts.at(-1).data.kind,'batch-result-verified');
+ await f.send(batchEvent('batch-ahead-request',aheadRequestId,batchAhead));
+ assert.equal(batchAheads.length,1);
  receiver.close();
 });
