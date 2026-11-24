@@ -1,4 +1,5 @@
 import {inspectSingleTaskRecovery} from './sync-recovery-inspect.js';
+import {inspectStoredBatchProgress} from './sync-batch-recovery-inspect.js';
 
 // Read-only discovery of older, immutable TEST checkpoints after an Uploader
 // tab or browser was closed. A listing is not itself write authorization.
@@ -17,11 +18,13 @@ const hex=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 
 export function createStoredSyncRecovery({
  boardId,driveId,getAccessToken,fetcher=fetch,
- assertCurrent=()=>true,inspect=inspectSingleTaskRecovery
+ assertCurrent=()=>true,inspect=inspectSingleTaskRecovery,
+ inspectBatch=inspectStoredBatchProgress
 }={}){
  if(boardId!=='5107075373'||!/^b![-_A-Za-z0-9]+$/.test(driveId||'')||
     typeof getAccessToken!=='function'||typeof fetcher!=='function'||
-    typeof assertCurrent!=='function'||typeof inspect!=='function')
+    typeof assertCurrent!=='function'||typeof inspect!=='function'||
+    typeof inspectBatch!=='function')
   throw Error('A tarolt recovery csak az izolalt TEST-tarhelyen erheto el.');
  const base='https://graph.microsoft.com/v1.0/drives/'+encodeURIComponent(driveId);
  const dir=(folder,name)=>'/root:/'+['Projects',boardId,folder,name]
@@ -146,7 +149,11 @@ export function createStoredSyncRecovery({
   };
   const report=await inspect({boardId,driveId,approvedReceipt,checkpointReceipt,
    getAccessToken,fetcher,assertCurrent});
-  return Object.freeze({report,approvedReceipt,checkpointReceipt});
+  const batchReport=report.status==='RESULT_VERIFIED'?await inspectBatch({
+   boardId,driveId,approvedReceipt,checkpointReceipt,
+   getAccessToken,fetcher,assertCurrent
+  }):null;
+  return Object.freeze({report,batchReport,approvedReceipt,checkpointReceipt});
  }
  return Object.freeze({list,inspectNamed});
 }
