@@ -299,7 +299,7 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
  assert.equal(f.posts.at(-1).data.kind,'sync-recovery-report');
  assert.equal(f.posts.at(-1).origin,'https://monday.example.com');
  const sessionId='33333333-3333-4333-8333-333333333333';
- const intent={schemaVersion:1,format:'flow-lps-batch-start-intent',
+ const batchIntent={schemaVersion:1,format:'flow-lps-batch-start-intent',
   boardId,batchNumber:1,approvedSha256:approvedHash,
   checkpointSha256:cpResult.sha256,verifiedPilotTaskId:'101',
   editorId:'96423073',taskCount:1,taskIds:['102']};
@@ -308,7 +308,7 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
    boardId,sessionId,requestId,entry}});
  await f.send(batchEvent('batch-start-request',undefined,undefined));
  await f.send({source:f.opener,origin:'https://monday.example.com',
-  data:{protocol,kind:'batch-start-request',nonce,boardId,sessionId,intent}});
+  data:{protocol,kind:'batch-start-request',nonce,boardId,sessionId,intent:batchIntent}});
  assert.equal(batchStarts.length,1);
  assert.equal(receiver.publishBatchStart(sessionId),true);
  assert.equal(f.posts.at(-1).data.kind,'batch-session-verified');
