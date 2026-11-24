@@ -35,7 +35,12 @@ async function fixture(){
   sha256:cpSha,id:'cp-item',eTag:'cp-etag',
   approvedPlanSha256:approvedHash,
   verification:'content-sha256-and-etag',
-  mondaySyncAllowed:false,mondayWrites:0,checkpoint:cp};
+  mondaySyncAllowed:false,mondayWrites:0,checkpoint:cp,
+  batchProgress:{schemaVersion:1,format:'flow-lps-batch-ledger-recovery',
+   status:'FIRST_BATCH_READY',boardId,approvedPlanSha256:approvedHash,
+   checkpointSha256:cpSha,evidenceSha256:'a'.repeat(64),
+   canPrepareNextBatch:true,nextBatchNumber:1,nextStep:1,
+   verifiedBatchCount:0,nextTaskIds:['101'],automaticallyResume:false}};
  const entry={schemaVersion:1,format:'flow-lps-batch-task-ahead',
   status:'BATCH_WRITE_AHEAD',boardId,taskId:'101',step:1,batchNumber:1,
   approvedSha256:approvedHash,checkpointSha256:cpSha,
