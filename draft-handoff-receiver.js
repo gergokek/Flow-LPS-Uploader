@@ -293,5 +293,46 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    return true;
   }catch{return false;}
  }
- return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint,publishPilotAhead,publishPilotResult});
+ function publishSyncRecovery(report){
+  const cp=lastCheckpoint?.checkpoint,approved=lastCheckpoint?.approved;
+  if(closed||!accepted||busy||!checkpointPublished||!cp||!approved||
+     verifiedVersion!==accepted.version||!finalizationIntentAccepted||
+     report?.schemaVersion!==1||report.format!=='flow-lps-single-task-recovery'||
+     !['NO_JOURNAL','WRITE_AHEAD_ONLY','RESULT_VERIFIED','RESULT_UNCERTAIN'].includes(report.status)||
+     report.boardId!==accepted.boardId||
+     report.approvedPlanSha256!==approved.sha256||
+     report.checkpointSha256!==cp.sha256||
+     report.sourceFingerprint!==cp.checkpoint?.mondaySourceFingerprint||
+     report.claimedMondayEditorId!==cp.checkpoint?.mondayPreflight?.editorIdClaim||
+     report.mondayWritesPerformedByThisInspection!==0||
+     report.automaticallyResume!==false||
+     typeof report.inspectedAt!=='string'||
+     !Number.isFinite(Date.parse(report.inspectedAt))||
+     Math.abs(Date.now()-Date.parse(report.inspectedAt))>10*60*1000)return false;
+  const prefix='sync-one-'+approved.sha256.slice(0,24)+'-',
+   folder='Projects/'+accepted.boardId+'/Sync-Status/';
+  if(report.ahead&&(
+     report.ahead.name!==prefix+'ahead.json'||
+     !/^\d+$/.test(report.ahead.taskId||'')||
+     !/^[a-f0-9]{64}$/.test(report.ahead.sha256||'')||
+     !report.ahead.id||!report.ahead.eTag))return false;
+  if(report.result&&(
+     !report.ahead||report.result.name!==prefix+'result.json'||
+     report.result.taskId!==report.ahead.taskId||
+     !/^[a-f0-9]{64}$/.test(report.result.sha256||'')||
+     !report.result.id||!report.result.eTag))return false;
+  const noJournal=report.ahead===null&&report.result===null,
+   aheadOnly=report.ahead!==null&&report.result===null;
+  if((report.status==='NO_JOURNAL')!==noJournal||
+     (report.status==='WRITE_AHEAD_ONLY')!==aheadOnly||
+     (['RESULT_VERIFIED','RESULT_UNCERTAIN'].includes(report.status))!==
+      (report.ahead!==null&&report.result!==null))return false;
+  try{
+   if(JSON.stringify(report).length>100000)return false;
+   win.opener.postMessage({protocol,kind:'sync-recovery-report',nonce,
+    boardId:accepted.boardId,report},accepted.sourceOrigin);
+   return true;
+  }catch{return false;}
+ }
+ return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint,publishPilotAhead,publishPilotResult,publishSyncRecovery});
 }
