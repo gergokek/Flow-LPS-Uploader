@@ -1,14 +1,17 @@
 import {createStoredSyncRecovery} from './sync-recovery-catalog.js';
+import {inspectStoredFinalSyncReceipt} from './sync-final-receipt-inspect.js';
 
 // Reopen and inspect historical checkpoints even when the original Uploader
 // window no longer exists. Never starts/resumes a Monday write.
 export function mountStoredSyncRecovery({
  listButton,select,inspectButton,output,getCurrent,getAccessToken,
- driveId,makeService=createStoredSyncRecovery,onInspected=()=>{}
+ driveId,makeService=createStoredSyncRecovery,
+ inspectFinal=inspectStoredFinalSyncReceipt,onInspected=()=>{}
 }={}){
  if(!listButton||!select||!inspectButton||!output||
     typeof getCurrent!=='function'||typeof getAccessToken!=='function'||
-    typeof makeService!=='function'||typeof onInspected!=='function')
+    typeof makeService!=='function'||typeof inspectFinal!=='function'||
+    typeof onInspected!=='function')
   throw Error('Hibas tarolt szinkron recovery felulet.');
  let busy=false,items=[],generation=0,accountKey=null;
  const accountOf=c=>[c?.account?.homeAccountId,c?.account?.tenantId].join('|');
@@ -67,6 +70,20 @@ export function mountStoredSyncRecovery({
     const inspected=await service.inspectNamed(name);
     if(seq!==generation||!currentMatches(baseline))
      throw Error('A munkamenet megvaltozott.');
+    let finalEvidence=null,finalError=null;
+    if(inspected.batchReport?.status==='ALL_VERIFIED'){
+     try{
+      finalEvidence=await inspectFinal({
+       boardId:c.boardId,driveId,approvedReceipt:inspected.approvedReceipt,
+       checkpointReceipt:inspected.checkpointReceipt,
+       pilotReport:inspected.report,batchReport:inspected.batchReport,
+       getAccessToken:async()=>token,
+       assertCurrent:()=>seq===generation&&currentMatches(baseline)
+      });
+     }catch(error){finalError=error?.message||String(error);}
+    }
+    if(seq!==generation||!currentMatches(baseline))
+     throw Error('A SharePoint munkamenet megvaltozott a vegso nyugta vizsgalata kozben.');
     const sent=onInspected(inspected)===true;
     const r=inspected.report;
     output.textContent='Korábbi szinkron ellenőrizve: '+name+
@@ -76,6 +93,14 @@ export function mountStoredSyncRecovery({
      (inspected.batchReport?'\nIgazolt korábbi batch-feladatok: '+
       inspected.batchReport.verifiedBatchCount+
       '\nBatch naplósor: '+inspected.batchReport.status:'')+
+     (finalEvidence?.status==='HISTORICAL_FINAL_RECEIPT_VERIFIED'?
+      '\nTARTÓS TEST ZÁRÓNYUGTA VISSZAELLENŐRIZVE: '+finalEvidence.name+
+      '\nSHA-256: '+finalEvidence.sha256+
+      '\nFigyelem: a Monday-board AKTUÁLIS állapota ezzel NINCS igazolva.':
+      finalEvidence?.status==='FINAL_RECEIPT_NOT_FOUND'?
+      '\nNincs tartós szinkronzáró nyugta; a történeti naplók lezárása még nem igazolt.':
+      finalError?'\nA történeti zárónyugta NEM ELLENŐRIZHETŐ: '+finalError:
+      '')+
      '\nAutomatikus folytatás: TILTVA.'+
      (sent?'\nAz aktív Monday TEST megkapta az információt.':
       '\nKorábbi, bezárt Monday-ablakhoz nincs automatikus újracsatlakozás.');
