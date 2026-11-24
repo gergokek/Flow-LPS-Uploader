@@ -30,3 +30,15 @@ Az előnapló fájl létezése **nem bizonyítja**, hogy Monday-írás történt
 ## Telepítés és teszt
 
 Az Uploader automatikusan GitHub Pagesre települ. A Monday új TEST-ágát külön kell deployolni. Jelenleg automatizált szintetikus regressziók vannak; a felhasználó kérésére **nem végzünk most kézi pilotot**. A teljes TEST-checklist külön következő körben készül.
+
+## Recovery és történeti checkpointok (2026-11-24)
+
+A `sync-recovery-inspect.js` minden ellenőrzéskor újraolvassa a SharePoint kiinduló checkpointját, az egyszeri pilot `ahead` és `result` fájlját, az összes tartalom SHA-256-át, eTag-jét, item ID-ját, valamint ellenőrzi a Microsoft Entra `/me` azonosságát.
+
+A recovery négy állapotot különböztet meg: `NO_JOURNAL`, `WRITE_AHEAD_ONLY`, `RESULT_VERIFIED`, `RESULT_UNCERTAIN`. A Graph 403/500 hiba soha nem értelmezhető hiányzó fájlként. Eredménynapló nélküli vagy ellentmondó bizonyíték esetén további írás tilos.
+
+A `sync-recovery-catalog.js` a korábban bezárt Uploader-ablak után is megkeresi az archivált checkpointokat a TEST `Projects/{BoardId}/Sync-Status` mappában. A kiválasztott checkpoint és a hozzá tartozó `Approved-Plans` JSON újbóli, teljes Graph SHA-256/eTag-visszaolvasásával állítja helyre a böngészőben korábban csak ideiglenesen tárolt bizonyítékokat. Ezután a megszakadt pilot-naplókat is újraolvassa.
+
+A kezelőfelület két ellenőrzési módot kínál: egyetlen gomb az aktuális nyitott munkamenet ellenőrzéséhez, illetve a korábbi SharePoint-checkpointok listázása és kiválasztása böngészőbezárás után. A történeti ellenőrzés a régi Monday-ablakhoz nem csatlakozik automatikusan.
+
+Mindkét útvonal kizárólag `GET` Graph-kéréseket használ; **nem ír SharePointra és nem indít Monday-módosítást**. A tényleges 193 feladatos visszaírás és megszakítás utáni automatikus újraindítás továbbra sem engedélyezett.
