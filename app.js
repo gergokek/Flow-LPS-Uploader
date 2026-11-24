@@ -8,6 +8,7 @@ import {validateEditedDraft} from './edited-draft-validator.js';
 import {mountSavedDraftReview} from './review-preflight-ui.js';
 import {mountApprovedPlanAction} from './approved-plan-ui.js';
 import {mountSyncCheckpointAction} from './sync-checkpoint-ui.js';
+import {mountSyncRecoveryAction} from './sync-recovery-ui.js';
 import {mountSingleTaskJournalControl} from './pilot-journal-ui.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import {createProjectStorage} from './project-storage.js';
@@ -438,6 +439,7 @@ const syncCheckpointAction=mountSyncCheckpointAction({
   if(result?.status==='CHECKPOINT_PREPARED'&&result.checkpoint&&
      approvedSyncCandidate&&draftHandoff.publishVerifiedCheckpoint(result,approvedSyncCandidate)){
    pilotCheckpointCandidate=result;
+   syncRecoveryAction.enable();
    document.querySelector('#syncCheckpointResult').textContent=
     'Checkpoint mentve és visszaellenőrizve: '+result.name+
     '\nA Monday TEST megkapta az egyfeladatos pilot-előnézetet.'+
@@ -470,12 +472,32 @@ const pilotJournalControl=mountSingleTaskJournalControl({
  onResultVerified:(receipt,id)=>draftHandoff.publishPilotResult(receipt,id)
 });
 
+const syncRecoveryAction=mountSyncRecoveryAction({
+ button:document.querySelector('#inspectSyncRecovery'),
+ output:document.querySelector('#syncRecoveryResult'),driveId,
+ getCurrent:()=>({
+  boardId:projectBoard.value.trim(),
+  approved:approvedSyncCandidate,checkpoint:pilotCheckpointCandidate,
+  account:msal.getAllAccounts()[0]||null
+ }),
+ getAccessToken:async account=>{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected',
+   'https://graph.microsoft.com/User.Read'],account,redirectUri};
+  try{return (await msal.acquireTokenSilent(request)).accessToken;}
+  catch(e){
+   if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;
+   return (await msal.acquireTokenPopup(request)).accessToken;
+  }
+ },
+ onInspected:report=>draftHandoff.publishSyncRecovery(report)
+});
+
 const editedFile=document.querySelector('#editedDraftFile');
 const editedSave=document.querySelector('#saveEditedDraft');
 const editedStatus=document.querySelector('#editedDraftStatus');
 const editedResult=document.querySelector('#editedDraftSaveResult');
 editedFile.addEventListener('change',async()=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();
  document.querySelector('#finalizationIntentResult').textContent='Nincs aktuális véglegesítési kérelem.';
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs feltoltes.';
@@ -537,7 +559,7 @@ autoCheckbox.addEventListener('change',()=>{
  }else sessionAutosave.disable();
 });
 const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
  try{
@@ -551,7 +573,7 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   return {boardId:valid.boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
  }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
 },onRevision:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
  if(boardId!==projectBoard.value.trim())throw Error('Eltero Monday-board.');
  const valid=await validateEditedDraft(content,boardId);
  if(editedDraftChecked&&valid.version<=editedDraftChecked.version)
