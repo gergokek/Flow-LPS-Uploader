@@ -1,4 +1,7 @@
 import {createSessionDraftAutosave} from './draft-session-autosave.js';
+import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
+import {createImmutableDraftQueue} from './single-draft-write-queue.js';
+import {attachSingleDraftSessionBridge} from './single-draft-session-bridge.js';
 import {attachDraftHandoff} from './draft-handoff-receiver.js';
 import {listStoredDraftVersions,loadStoredDraftVersion} from './sharepoint-version-picker.js';
 import {verifyGraphDraftContent} from './graph-draft-content-verifier.js';
@@ -30,6 +33,9 @@ const driveId='b!YBiCN3mDjkCA0zlGakoS1F6FNi-WzO5Ip7eBTLppUVCRBefvaJ27TYm2xryC37M
 const projectBoard=document.querySelector('#projectBoardId');
 const projectSetup=document.querySelector('#setupProject');
 const projectResult=document.querySelector('#projectResult');
+const createSingleDraft=document.querySelector('#startSingleDraft');
+const resumeSingleDraft=document.querySelector('#resumeSingleDraft');
+const singleDraftOutput=document.querySelector('#singleDraftResult');
 let draftTransferText=null;
 const draftSaveButton=document.querySelector('#saveDraft');
 const draftSaveResult=document.querySelector('#draftSaveResult');
@@ -44,6 +50,8 @@ function showAccount(account){
  graphButton.disabled=!account;
  document.querySelector('#listStoredSyncCheckpoints').disabled=!account||projectBoard.value.trim()!=='5107075373';
  projectSetup.disabled=!account;
+ createSingleDraft.disabled=!account||projectBoard.value.trim()!=='5107075373';
+ resumeSingleDraft.disabled=!account||projectBoard.value.trim()!=='5107075373';
  draftSaveButton.disabled=!account||!draftTransferText;
  editedSave.disabled=!account||!editedDraftText;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
@@ -206,6 +214,97 @@ const pickerToken=async()=>{
   return (await msal.acquireTokenPopup(request)).accessToken;
  }
 };
+// New, isolated one-session workflow. No legacy autosave coalescing and no
+// direct Monday writes. Existing legacy tests remain available separately.
+let singleSession=null,singleSessionQueue=null,singleStore=null,singleBusy=false;
+const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,sessionId})=>{
+ if(!singleSession||!singleSessionQueue||singleSession.sessionId!==sessionId||
+    singleSessionQueue.state().blocked||
+    draft.version!==singleSessionQueue.state().nextRevision+1)
+  throw Error('A DRAFT-munkamenet módosítási sora nem érvényes.');
+ if(!singleSessionQueue.enqueue(draft))
+  throw Error('A DRAFT-módosítás nem került a mentési sorba.');
+ await singleSessionQueue.idle(); // Verified Graph content/eTag, not an ACK alone.
+ if(singleSession?.revision!==draft.version)
+  throw Error('A SharePoint-mentés verziója eltér.');
+ return singleSession;
+},onStatus:state=>{
+ if(state==='blocked')singleDraftOutput.textContent=
+  'A DRAFT-mentés bizonytalan. A munkamenet csak független SharePoint-ellenőrzés után folytatható.';
+}});
+function singleStoreFor(account,boardId){
+ const originalId=account.homeAccountId,tenant=account.tenantId;
+ return createSingleDraftSessionStore({boardId,driveId,
+  getAccessToken:pickerToken,
+  assertCurrent:()=>projectBoard.value.trim()===boardId&&
+   msal.getAllAccounts()[0]?.homeAccountId===originalId&&
+   msal.getAllAccounts()[0]?.tenantId===tenant});
+}
+async function openSingleSession(kind){
+ if(singleBusy||singleSession)return;
+ const boardId=projectBoard.value.trim(),account=msal.getAllAccounts()[0];
+ if(boardId!=='5107075373'||!account){
+  singleDraftOutput.textContent='A TEST projekt és a Microsoft-bejelentkezés szükséges.';
+  return;
+ }
+ if(kind==='start'&&!window.confirm('A SharePoint Approved Plan V0-ból új, '+
+   'egyedüli aktív V1 munkamenetet hozunk létre. A Monday-board változatlan. Folytatod?'))return;
+ singleBusy=true;createSingleDraft.disabled=true;resumeSingleDraft.disabled=true;
+ singleDraftOutput.textContent=kind==='start'?
+  'V0 teljes SharePoint-ellenőrzése és egyetlen V1 munkamenet lefoglalása...':
+  'SharePoint V0, munkamenet-foglalás és minden DRAFT-revízió visszaellenőrzése...';
+ try{
+  const store=singleStoreFor(account,boardId);
+  const selected=kind==='start'?await store.start({createdBy:account.homeAccountId}):
+   await store.resume();
+  const queue=createImmutableDraftQueue({
+   persist:async work=>{
+    const proof=await store.append(work);
+    singleSession=proof;
+    return proof;
+   },
+   onState:state=>{
+    if(state.blocked)singleDraftOutput.textContent=
+     'SharePoint DRAFT mentés LEÁLLÍTVA: '+state.blocked;
+    else if(state.active)singleDraftOutput.textContent=
+     'DRAFT V1.'+(state.verifiedRevision+1)+' feltöltés és visszaellenőrzés...';
+    else if(state.verifiedRevision>0&&singleSession)
+     singleDraftOutput.textContent='DRAFT V1.'+state.verifiedRevision+
+      ' SharePointra mentve és SHA-256/eTag szerint visszaellenőrizve.';
+   }
+  });
+  queue.open({sessionId:selected.sessionId,revision:selected.revision,
+   sha256:selected.receipt.sha256});
+  singleStore=store;singleSession=selected;singleSessionQueue=queue;
+  const handed=singleBridge.active&&singleBridge.selected(selected);
+  singleDraftOutput.textContent='Aktív munkamenet: '+selected.versionLabel+
+   '\nProjekt: '+boardId+'\nSharePoint verzió: '+selected.receipt.name+
+   '\nSHA-256: '+selected.receipt.sha256+
+   '\nMonday-board módosítás: 0'+
+   (handed?'\nEllenőrzött DRAFT átadva a Monday TEST szerkesztőnek.':
+    '\nA kiválasztott munkamenet ellenőrzött. A Monday TEST-ből megnyitott '+
+    'Uploader-ablakban a DRAFT automatikusan átadható.');
+ }catch(error){
+  singleDraftOutput.textContent='A DRAFT-munkamenet nem indítható/folytatható: '+
+   (error?.message||error)+
+   '\nBizonytalan SharePoint írás esetén nincs automatikus újrapróbálás.';
+ }finally{
+  singleBusy=false;
+  const enabled=!!msal.getAllAccounts()[0]&&
+   projectBoard.value.trim()==='5107075373'&&!singleSession;
+  createSingleDraft.disabled=!enabled;resumeSingleDraft.disabled=!enabled;
+ }
+}
+createSingleDraft.addEventListener('click',()=>void openSingleSession('start'));
+resumeSingleDraft.addEventListener('click',()=>void openSingleSession('resume'));
+projectBoard.addEventListener('change',()=>{
+ if(singleSession&&projectBoard.value.trim()!==singleSession.boardId){
+  singleSessionQueue?.stop();
+  singleBridge.close();
+  singleDraftOutput.textContent='Projektváltás miatt a DRAFT-munkamenet lezárult az ablakban. Újratöltés és ellenőrzés szükséges.';
+ }
+ showAccount(msal.getAllAccounts()[0]||null);
+});
 pickerList.addEventListener('click',async()=>{
  pickerList.disabled=true;pickerEntries=[];pickerVerified=null;
  pickerVerify.disabled=true;pickerDownload.disabled=true;pickerSelect.disabled=true;
