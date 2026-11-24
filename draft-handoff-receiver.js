@@ -13,7 +13,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
  const nonce=params.get('draft-handoff');
  if(!nonce||!nonceRegex.test(nonce)||!win.opener)
   return Object.freeze({active:false,close:()=>{},publishVerifiedReceipt:()=>false});
- let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null,lastPreviewAck=null,checkpointPublished=false,lastCheckpoint=null,pilotPending=null,lastRecovery=null,batchSession=null;
+ let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null,lastPreviewAck=null,checkpointPublished=false,lastCheckpoint=null,pilotPending=null,lastRecovery=null,lastBatchRecovery=null,batchSession=null;
  const close=()=>{closed=true;win.removeEventListener('message',handler);};
  const validProof=(proof,boardId)=>proof&&proof.boardId===boardId&&
   Number.isSafeInteger(proof.version)&&proof.version>0&&
@@ -233,7 +233,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    if(!validProof(verified,boardId))throw Error('DRAFT validation failed');
    if(accepted&&verified.version<=accepted.version)throw Error('Older or duplicate DRAFT revision');
    if(closed)return;
-   finalizationIntentAccepted=false;syncPreviewPending=null;lastPreviewAck=null;checkpointPublished=false;lastCheckpoint=null;pilotPending=null;lastRecovery=null;batchSession=null;
+   finalizationIntentAccepted=false;syncPreviewPending=null;lastPreviewAck=null;checkpointPublished=false;lastCheckpoint=null;pilotPending=null;lastRecovery=null;lastBatchRecovery=null;batchSession=null;
    accepted={boardId,version:verified.version,sha256:verified.sha256,
     bytes:verified.bytes,sourceOrigin:event.origin};
    win.opener?.postMessage({protocol,kind:'received',nonce,version:verified.version,sha256:verified.sha256},event.origin);
@@ -430,6 +430,72 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    return true;
   }catch{p.phase='STOPPED';return false;}
  }
+ function publishBatchRecovery(report){
+  const cp=lastCheckpoint?.checkpoint,approved=lastCheckpoint?.approved,
+   pilot=lastRecovery;
+  if(closed||busy||!accepted||!checkpointPublished||!approved||!cp||
+     pilot?.status!=='RESULT_VERIFIED'||
+     report?.schemaVersion!==1||
+     report.format!=='flow-lps-batch-ledger-recovery'||
+     !['FIRST_BATCH_READY','NEXT_BATCH_READY','ALL_VERIFIED',
+       'MANUAL_RECONCILIATION_REQUIRED'].includes(report.status)||
+     report.boardId!==accepted.boardId||
+     report.approvedPlanSha256!==approved.sha256||
+     report.checkpointSha256!==cp.sha256||
+     report.sourceFingerprint!==cp.checkpoint?.mondaySourceFingerprint||
+     report.verifiedPilotTaskId!==pilot.result?.taskId||
+     report.inspectedWithWrites!==0||report.automaticallyResume!==false||
+     !/^[a-f0-9]{64}$/.test(report.evidenceSha256||'')||
+     typeof report.inspectedAt!=='string'||
+     !Number.isFinite(Date.parse(report.inspectedAt))||
+     Math.abs(Date.now()-Date.parse(report.inspectedAt))>10*60*1000||
+     !Number.isSafeInteger(report.verifiedBatchCount)||
+     report.verifiedBatchCount<0||
+     !Array.isArray(report.verifiedBatchTaskIds)||
+     report.verifiedBatchTaskIds.length!==report.verifiedBatchCount||
+     !Array.isArray(report.nextTaskIds)||report.nextTaskIds.length>10||
+     !Number.isSafeInteger(report.totalPendingBatchTasks)||
+     report.totalPendingBatchTasks<0||
+     !Number.isSafeInteger(report.remainingTaskCount)||
+     report.remainingTaskCount!==report.totalPendingBatchTasks-report.verifiedBatchCount||
+     !Array.isArray(report.records)||report.records.length>500)return false;
+  const plan=approved.approvedPlan?.plan,
+   old=new Map(plan?.base?.tasks?.map(t=>[t.id,t])||[]),
+   editable=['anchor','forecast','actual','duration','ffLag','startPre',
+    'finishPre','note','readiness','critical','week','endWeek','status','obstacles','ledger'];
+  const changed=plan?.base?.tasks?.filter(t=>{
+   const next=plan.working.find(v=>v.id===t.id);
+   return !!next&&editable.some(k=>JSON.stringify(t[k]??null)!==
+    JSON.stringify(next[k]??null));
+  }).map(t=>t.id).filter(id=>id!==report.verifiedPilotTaskId)||[];
+  if(report.totalPendingBatchTasks!==changed.length||
+     JSON.stringify(report.verifiedBatchTaskIds)!==
+      JSON.stringify(changed.slice(0,report.verifiedBatchCount)))return false;
+  const eligible=report.status==='FIRST_BATCH_READY'||
+   report.status==='NEXT_BATCH_READY';
+  if(report.canPrepareNextBatch!==eligible||
+     (eligible&&(
+      report.verifiedBatchCount%10!==0||
+      report.nextStep!==report.verifiedBatchCount+1||
+      report.nextBatchNumber!==Math.floor(report.verifiedBatchCount/10)+1||
+      JSON.stringify(report.nextTaskIds)!==
+       JSON.stringify(changed.slice(report.verifiedBatchCount,
+        report.verifiedBatchCount+10))))||
+     (!eligible&&(report.nextStep!==null||report.nextBatchNumber!==null||
+      report.nextTaskIds.length!==0)))return false;
+  try{
+   if(JSON.stringify(report).length>140000)return false;
+   win.opener.postMessage({protocol,kind:'sync-batch-recovery-report',nonce,
+    boardId:accepted.boardId,report},accepted.sourceOrigin);
+   if(eligible){
+    if(batchSession?.phase==='COMPLETE'&&
+       report.verifiedBatchCount>=batchSession.intent.startStep+
+        batchSession.tasks.length-1)batchSession=null;
+    lastBatchRecovery=report;
+   }else lastBatchRecovery=null;
+   return true;
+  }catch{return false;}
+ }
  function publishSyncRecovery(report){
   const cp=lastCheckpoint?.checkpoint,approved=lastCheckpoint?.approved;
   if(closed||!accepted||busy||!checkpointPublished||!cp||!approved||
@@ -472,5 +538,5 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    return true;
   }catch{return false;}
  }
- return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint,publishPilotAhead,publishPilotResult,publishSyncRecovery,publishBatchStart,publishBatchJournal});
+ return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint,publishPilotAhead,publishPilotResult,publishSyncRecovery,publishBatchRecovery,publishBatchStart,publishBatchJournal});
 }
