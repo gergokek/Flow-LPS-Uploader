@@ -1,4 +1,5 @@
 import {createBatchTaskJournal} from './sync-batch-journal.js';
+import {inspectStoredBatchProgress} from './sync-batch-recovery-inspect.js';
 
 // One explicit Uploader confirmation enables a sequential batch of at most ten
 // TEST tasks. All later per-item journal records are automatic, immutable and
@@ -6,15 +7,22 @@ import {createBatchTaskJournal} from './sync-batch-journal.js';
 export function mountTestBatchSession({
  button,output,getCurrent,getAccessToken,
  confirm,driveId,makeJournal=createBatchTaskJournal,
- publishStart=()=>false,publishJournal=()=>false
+ inspectBatch=inspectStoredBatchProgress,publishStart=()=>false,publishJournal=()=>false
 }={}){
  if(!button||!output||typeof button.addEventListener!=='function'||
     typeof getCurrent!=='function'||typeof getAccessToken!=='function'||
     typeof confirm!=='function'||typeof makeJournal!=='function'||
+    typeof inspectBatch!=='function'||
     typeof publishStart!=='function'||typeof publishJournal!=='function')
   throw Error('Hibas TEST batch-session felulet.');
  let phase='IDLE',session=null,journal=null,mark=0,nextStep=1,proof=null;
  const match=(c,p)=>c?.boardId==='5107075373'&&
+  c.batchLedger?.canPrepareNextBatch===true&&
+  c.batchLedger?.status===(p.intent.batchNumber===1?'FIRST_BATCH_READY':'NEXT_BATCH_READY')&&
+  c.batchLedger.nextBatchNumber===p.intent.batchNumber&&
+  c.batchLedger.nextStep===(p.intent.startStep??1)&&
+  c.batchLedger.evidenceSha256===p.intent.priorLedgerSha256&&
+  JSON.stringify(c.batchLedger.nextTaskIds)===JSON.stringify(p.intent.taskIds)&&
   !!c.account?.homeAccountId&&!!c.account?.tenantId&&
   c.account.homeAccountId===p.accountId&&c.account.tenantId===p.tenantId&&
   c.approved?.status==='APPROVED_PLAN_STORED'&&
@@ -36,10 +44,17 @@ export function mountTestBatchSession({
   button.disabled=true;output.textContent='A batch-munkamenet megszakadt. A meglévő SharePoint-naplókat ellenőrizni kell; automatikus újrakezdés nincs.';
  }
  function acceptStart({sessionId,intent}={}){
+  if(phase==='COMPLETED'&&session&&intent?.batchNumber===session.intent.batchNumber+1&&
+     intent?.startStep===(session.intent.startStep??1)+session.intent.taskCount){
+   phase='IDLE';session=null;journal=null;proof=null;
+  }
   if(phase!=='IDLE'||session||!intent||!Array.isArray(intent.taskIds)||
      intent.taskIds.length<1||intent.taskIds.length>10||
      intent.taskCount!==intent.taskIds.length||
-     intent.batchNumber!==1||typeof sessionId!=='string'||
+     !Number.isInteger(intent.batchNumber)||intent.batchNumber<1||
+     !Number.isSafeInteger(intent.startStep??1)||
+     intent.batchNumber!==Math.ceil((intent.startStep??1)/10)||
+     typeof sessionId!=='string'||
      !/^[a-f0-9-]{36}$/i.test(sessionId))return false;
   const c=getCurrent(),candidate={sessionId,intent,
    accountId:c?.account?.homeAccountId,tenantId:c?.account?.tenantId};
@@ -64,12 +79,25 @@ export function mountTestBatchSession({
    const c=getCurrent(),token=await getAccessToken(c.account);
    if(!token||seq!==mark||!match(getCurrent(),p))
     throw Error('Microsoft-munkamenet megvaltozott.');
+   // Re-read every durable proof at the precise moment of new write consent.
+   const prior=await inspectBatch({boardId:c.boardId,driveId,
+    approvedReceipt:c.approved,checkpointReceipt:c.checkpoint,
+    getAccessToken:async()=>getAccessToken(c.account),
+    assertCurrent:()=>seq===mark&&match(getCurrent(),p)});
+   if(!prior.canPrepareNextBatch||
+      prior.status!==c.batchLedger.status||
+      prior.evidenceSha256!==p.intent.priorLedgerSha256||
+      prior.nextBatchNumber!==p.intent.batchNumber||
+      prior.nextStep!==(p.intent.startStep??1)||
+      JSON.stringify(prior.nextTaskIds)!==JSON.stringify(p.intent.taskIds)||
+      seq!==mark||!match(getCurrent(),p))
+    throw Error('A SharePoint batch-naplosor valtozott; uj recovery szukseges.');
    journal=makeJournal({boardId:c.boardId,driveId,
     getAccessToken:async()=>getAccessToken(c.account),
     assertCurrent:()=>seq===mark&&match(getCurrent(),p)});
    if(!publishStart(p.sessionId))
     throw Error('A Monday nem fogadta az egyszeri batch inditasi nyugtat.');
-   nextStep=1;phase='ACTIVE';
+   nextStep=p.intent.startStep??1;phase='ACTIVE';
    output.textContent='TEST batch engedélyezve. Egyenként, naplózva legfeljebb '+
     p.intent.taskCount+' feladat; az Uploader várja az első WRITE_AHEAD kérést.';
   }catch(e){
@@ -80,7 +108,7 @@ export function mountTestBatchSession({
  async function acceptAhead({sessionId,requestId,entry}={}){
   const p=session,seq=mark;
   if(!p||phase!=='ACTIVE'||!journal||sessionId!==p.sessionId||
-     entry?.step!==nextStep||entry.batchNumber!==1||
+     entry?.step!==nextStep||entry.batchNumber!==p.intent.batchNumber||
      entry.taskId!==p.intent.taskIds[nextStep-1]||
      entry.approvedSha256!==p.intent.approvedSha256||
      entry.checkpointSha256!==p.intent.checkpointSha256||
@@ -88,7 +116,8 @@ export function mountTestBatchSession({
   phase='PERSISTING_AHEAD';
   try{
    const c=getCurrent(),result=await journal.recordAhead({
-    entry,checkpointReceipt:c.checkpoint,approvedReceipt:c.approved});
+    entry,checkpointReceipt:{...c.checkpoint,batchProgress:c.batchLedger},
+    approvedReceipt:c.approved});
    if(seq!==mark||!match(getCurrent(),p)||
       !publishJournal('ahead',result,requestId,sessionId))
     throw Error('WRITE_AHEAD igazolas nem jutott vissza a Monday-hez.');
@@ -106,7 +135,7 @@ export function mountTestBatchSession({
  async function acceptResult({sessionId,requestId,entry,aheadReceipt}={}){
   const p=session,seq=mark;
   if(!p||phase!=='AHEAD_CONFIRMED'||!journal||sessionId!==p.sessionId||
-     entry?.step!==nextStep||entry.batchNumber!==1||
+     entry?.step!==nextStep||entry.batchNumber!==p.intent.batchNumber||
      entry.taskId!==p.intent.taskIds[nextStep-1]||
      entry.writeAheadSha256!==proof?.sha256||
      aheadReceipt?.sha256!==proof?.sha256||
@@ -116,7 +145,8 @@ export function mountTestBatchSession({
   phase='PERSISTING_RESULT';
   try{
    const c=getCurrent(),result=await journal.recordResult({
-    entry,aheadReceipt,checkpointReceipt:c.checkpoint,approvedReceipt:c.approved});
+    entry,aheadReceipt,checkpointReceipt:{...c.checkpoint,batchProgress:c.batchLedger},
+    approvedReceipt:c.approved});
    if(seq!==mark||!match(getCurrent(),p)||
       !publishJournal('result',result,requestId,sessionId))
     throw Error('A batch eredmenynaplo nyugtaja nem ellenorizheto.');
@@ -127,7 +157,7 @@ export function mountTestBatchSession({
     return true;
    }
    nextStep++;proof=null;
-   phase=nextStep>p.intent.taskCount?'COMPLETED':'ACTIVE';
+   phase=nextStep>(p.intent.startStep??1)+p.intent.taskCount-1?'COMPLETED':'ACTIVE';
    output.textContent='Eredménynapló igazolva: '+result.name+
     '\nSikeres feladatok: '+(nextStep-1)+'/'+p.intent.taskCount+
     (phase==='COMPLETED'?'\nA batch összes feladata ellenőrizve.':
