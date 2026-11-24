@@ -42,3 +42,13 @@ A `sync-recovery-catalog.js` a korábban bezárt Uploader-ablak után is megkere
 A kezelőfelület két ellenőrzési módot kínál: egyetlen gomb az aktuális nyitott munkamenet ellenőrzéséhez, illetve a korábbi SharePoint-checkpointok listázása és kiválasztása böngészőbezárás után. A történeti ellenőrzés a régi Monday-ablakhoz nem csatlakozik automatikusan.
 
 Mindkét útvonal kizárólag `GET` Graph-kéréseket használ; **nem ír SharePointra és nem indít Monday-módosítást**. A tényleges 193 feladatos visszaírás és megszakítás utáni automatikus újraindítás továbbra sem engedélyezett.
+
+## Egyszeri TEST batch – feladatonkénti naplózás
+
+Az új `sync-batch-journal.js` az első, legfeljebb tíz feladatos TEST batch-et naplózza, mindig sorosan és egymástól külön, nem felülírható fájlokban. A fájlnév: `sync-batch-{ApprovedSHA24}-step-{0001..0010}-ahead.json`, illetve `...-result.json`. A terv, a checkpoint, a Monday-feladat azonosítója és a sorrendi index a teljes Graph SHA-256/eTag-visszaellenőrzés része.
+
+A `sync-batch-session-ui.js` egyetlen, explicit felhasználói megerősítés után automatikusan készíti az egyes feladatokhoz tartozó előnaplót és utónaplót. Minden következő feladat kizárólag akkor indulhat, ha az előzőnek sikeres Monday-visszaolvasása és igazolt SharePoint-eredménynaplója van. Az Uploader maga nem ír a Monday-boardra.
+
+Megszakítás, nem visszaigazolt SHA/eTag, nem megfelelő Microsoft-fiók, hiba vagy bizonytalan Monday-írás esetén a batch leáll. Az elkészült előnapló **nem bizonyítja a Monday-írás elmaradását**, ezért nincs automatikus retry.
+
+A soron következő, második és későbbi batch futtatása szándékosan nem engedélyezett. A történeti recovery eszközt ki kell egészíteni a `sync-batch-*` naplók teljes újraellenőrzésével, mielőtt tartós folytatási pozícióra bármilyen írási engedély épülhetne.
