@@ -89,7 +89,8 @@ export async function saveFinalSyncReceipt({
  const time=now().getTime(),inspected=Date.parse(closure?.inspectedAt),
   boardRead=Date.parse(closure?.boardCheckedAt),report=Date.parse(ledger.inspectedAt);
  strict(Number.isFinite(time)&&Number.isFinite(inspected)&&
-  Number.isFinite(report)&&Math.abs(time-report)<=120000&&
+  Number.isFinite(boardRead)&&Number.isFinite(report)&&
+  Math.abs(time-report)<=120000&&Math.abs(time-boardRead)<=120000&&
   Math.abs(time-inspected)<=120000,
   'A friss Monday vagy SharePoint ellenorzes lejart.');
  strict(closure?.schemaVersion===1&&
@@ -136,7 +137,7 @@ export async function saveFinalSyncReceipt({
   totalChangedTasks:closure.changedTaskCount,
   verifiedBatchTaskCount:closure.verifiedBatchTaskCount,
   remainingTaskCount:0,ledgerInspectedAt:ledger.inspectedAt,
-  boardVerifiedAt:now().toISOString(),
+  boardVerifiedAt:closure.boardCheckedAt,
   finalizedAt:now().toISOString(),
   finalizedByEntraObjectId:identity.identity.objectId,
   mondayWritesByFinalization:0,
