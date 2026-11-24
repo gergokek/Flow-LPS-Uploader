@@ -222,6 +222,7 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
  const checkpoint={schemaVersion:1,format:'flow-lps-sync-checkpoint',
   status:'PREPARED_NO_WRITES',boardId,
   mondaySourceFingerprint:report.sourceFingerprint,
+  mondayPreflight:{editorIdClaim:'96423073'},
   approvedPlan:{sha256:approvedHash,name,eTag:'approved-etag'},
   writeAuthorization:'NOT_GRANTED',mondaySyncAllowed:false,mondayWritten:false,
   progress:{cursor:0,mondayWrites:0,inFlight:null,verifiedTaskIds:[]}};
@@ -276,5 +277,22 @@ test('Monday read-only dry-run acknowledgement can prepare one checkpoint, never
  assert.equal(f.posts.at(-1).data.kind,'pilot-result-verified');
  await f.send(pilotEvent('pilot-write-ahead-request',entry));
  assert.equal(aheadRequests.length,1);
+ const recovery={schemaVersion:1,format:'flow-lps-single-task-recovery',
+  status:'RESULT_VERIFIED',boardId,approvedPlanSha256:approvedHash,
+  checkpointSha256:cpResult.sha256,
+  sourceFingerprint:report.sourceFingerprint,
+  claimedMondayEditorId:'96423073',
+  inspectedAt:new Date().toISOString(),
+  ahead:{taskId:'101',name:'sync-one-'+approvedHash.slice(0,24)+'-ahead.json',
+   id:'ahead-id',eTag:'etag-ahead',sha256:'d'.repeat(64),fieldNames:['note']},
+  result:{taskId:'101',name:'sync-one-'+approvedHash.slice(0,24)+'-result.json',
+   id:'result-id',eTag:'etag-result',sha256:'e'.repeat(64),
+   status:'ITEM_READBACK_VERIFIED',readbackMatches:true},
+  mondayWritesPerformedByThisInspection:0,automaticallyResume:false};
+ assert.equal(receiver.publishSyncRecovery({...recovery,automaticallyResume:true}),false);
+ assert.equal(receiver.publishSyncRecovery({...recovery,checkpointSha256:'x'.repeat(64)}),false);
+ assert.equal(receiver.publishSyncRecovery(recovery),true);
+ assert.equal(f.posts.at(-1).data.kind,'sync-recovery-report');
+ assert.equal(f.posts.at(-1).origin,'https://monday.example.com');
  receiver.close();
 });
