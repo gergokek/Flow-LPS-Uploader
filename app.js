@@ -10,6 +10,7 @@ import {mountApprovedPlanAction} from './approved-plan-ui.js';
 import {mountSyncCheckpointAction} from './sync-checkpoint-ui.js';
 import {mountSyncRecoveryAction} from './sync-recovery-ui.js';
 import {mountStoredSyncRecovery} from './sync-recovery-history-ui.js';
+import {mountTestBatchSession} from './sync-batch-session-ui.js';
 import {mountSingleTaskJournalControl} from './pilot-journal-ui.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import {createProjectStorage} from './project-storage.js';
@@ -359,7 +360,7 @@ editedVerifyButton.addEventListener('click',async()=>{
 
 const syncDryRunButton=document.querySelector('#runApprovedSyncDryRun');
 const syncDryRunOutput=document.querySelector('#approvedSyncDryRunResult');
-let approvedSyncCandidate=null,pilotCheckpointCandidate=null;
+let approvedSyncCandidate=null,pilotCheckpointCandidate=null,batchRecoveryCandidate=null;
 function invalidateApprovedSyncCandidate(){
  approvedSyncCandidate=null;syncDryRunButton.disabled=true;
  syncDryRunOutput.textContent='Nincs aktuális, visszaellenőrzött Approved Plan a szárazpróbához.';
@@ -491,7 +492,11 @@ const syncRecoveryAction=mountSyncRecoveryAction({
    return (await msal.acquireTokenPopup(request)).accessToken;
   }
  },
- onInspected:report=>draftHandoff.publishSyncRecovery(report)
+ onInspected:report=>{
+  const sent=draftHandoff.publishSyncRecovery(report);
+  batchRecoveryCandidate=sent&&report.status==='RESULT_VERIFIED'?report:null;
+  return sent;
+ }
 });
 
 const storedSyncRecovery=mountStoredSyncRecovery({
@@ -516,12 +521,37 @@ const storedSyncRecovery=mountStoredSyncRecovery({
 });
 projectBoard.addEventListener('change',()=>storedSyncRecovery.clear());
 
+const testBatchSession=mountTestBatchSession({
+ button:document.querySelector('#confirmTestBatch'),
+ output:document.querySelector('#testBatchResult'),
+ driveId,
+ getCurrent:()=>({
+  boardId:projectBoard.value.trim(),approved:approvedSyncCandidate,
+  checkpoint:pilotCheckpointCandidate,recovery:batchRecoveryCandidate,
+  validated:editedDraftChecked,saved:savedReview.currentProof(),
+  account:msal.getAllAccounts()[0]||null
+ }),
+ getAccessToken:async account=>{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected',
+   'https://graph.microsoft.com/User.Read'],account,redirectUri};
+  try{return (await msal.acquireTokenSilent(request)).accessToken;}
+  catch(e){
+   if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;
+   return (await msal.acquireTokenPopup(request)).accessToken;
+  }
+ },
+ confirm:message=>window.confirm(message),
+ publishStart:id=>draftHandoff.publishBatchStart(id),
+ publishJournal:(phase,proof,requestId,sessionId)=>
+  draftHandoff.publishBatchJournal(phase,proof,requestId,sessionId)
+});
+
 const editedFile=document.querySelector('#editedDraftFile');
 const editedSave=document.querySelector('#saveEditedDraft');
 const editedStatus=document.querySelector('#editedDraftStatus');
 const editedResult=document.querySelector('#editedDraftSaveResult');
 editedFile.addEventListener('change',async()=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();testBatchSession.clear();batchRecoveryCandidate=null;pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();
  document.querySelector('#finalizationIntentResult').textContent='Nincs aktuális véglegesítési kérelem.';
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs feltoltes.';
@@ -583,7 +613,7 @@ autoCheckbox.addEventListener('change',()=>{
  }else sessionAutosave.disable();
 });
 const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();testBatchSession.clear();batchRecoveryCandidate=null;pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
  try{
@@ -597,7 +627,7 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   return {boardId:valid.boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
  }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
 },onRevision:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();testBatchSession.clear();batchRecoveryCandidate=null;pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
  if(boardId!==projectBoard.value.trim())throw Error('Eltero Monday-board.');
  const valid=await validateEditedDraft(content,boardId);
  if(editedDraftChecked&&valid.version<=editedDraftChecked.version)
@@ -631,6 +661,15 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   syncDryRunOutput.textContent='A Monday TEST sikeres szárazpróbája visszaigazolva. '+
    'Most a Sync-Status checkpoint külön gombbal elmenthető; Monday-írás továbbra sincs.';
  }
+},onBatchStartRequested:request=>{
+ if(!testBatchSession.acceptStart(request)){
+  document.querySelector('#testBatchResult').textContent=
+   'Batch-engedélyezés elutasítva: eltér a Microsoft-fiók, Approved Plan vagy recovery.';
+ }
+},onBatchAheadRequested:request=>{
+ void testBatchSession.acceptAhead(request);
+},onBatchResultRequested:request=>{
+ void testBatchSession.acceptResult(request);
 },onPilotAheadRequested:request=>{
  if(!pilotJournalControl.acceptAhead(request)){
   document.querySelector('#pilotJournalResult').textContent=
