@@ -32,7 +32,7 @@ export function mountTestBatchSession({
   c.recovery.checkpointSha256===p.intent.checkpointSha256&&
   c.recovery.approvedPlanSha256===p.intent.approvedSha256;
  function clear(){
-  mark++;phase='STOPPED';session=null;journal=null;proof=null;
+  mark++;phase='IDLE';session=null;journal=null;proof=null;nextStep=1;
   button.disabled=true;output.textContent='A batch-munkamenet megszakadt. A meglévő SharePoint-naplókat ellenőrizni kell; automatikus újrakezdés nincs.';
  }
  function acceptStart({sessionId,intent}={}){
