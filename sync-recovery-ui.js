@@ -1,13 +1,16 @@
 import {inspectSingleTaskRecovery} from './sync-recovery-inspect.js';
+import {inspectStoredBatchProgress} from './sync-batch-recovery-inspect.js';
 
 // A single read-only action instead of per-journal confirmation buttons.
 export function mountSyncRecoveryAction({
  button,output,getCurrent,getAccessToken,
- inspect=inspectSingleTaskRecovery,driveId,onInspected=()=>{}
+ inspect=inspectSingleTaskRecovery,inspectBatch=inspectStoredBatchProgress,
+ driveId,onInspected=()=>{}
 }={}){
  if(!button||!output||typeof button.addEventListener!=='function'||
     typeof getCurrent!=='function'||typeof getAccessToken!=='function'||
-    typeof inspect!=='function'||typeof onInspected!=='function')
+    typeof inspect!=='function'||typeof inspectBatch!=='function'||
+    typeof onInspected!=='function')
   throw Error('Hibas recovery ellenorzo felulet.');
  let generation=0,running=false,ready=false;
  const eligible=c=>c?.boardId==='5107075373'&&
@@ -60,11 +63,21 @@ export function mountSyncRecoveryAction({
     RESULT_VERIFIED:'A SharePoint utónapló szerint az egyetlen pilot-feladat visszaolvasása sikeres.',
     RESULT_UNCERTAIN:'A pilot eredménye bizonytalan. Kézi egyeztetés szükséges, nincs újraküldés.'
    };
-   const sent=onInspected(report)===true;
+   const batchReport=report.status==='RESULT_VERIFIED'?await inspectBatch({
+    boardId:c.boardId,driveId,approvedReceipt:c.approved,
+    checkpointReceipt:c.checkpoint,getAccessToken:async()=>token,
+    assertCurrent:()=>generation===mark&&same(old,getCurrent())
+   }):null;
+   if(generation!==mark||!same(old,getCurrent()))
+    throw Error('A SharePoint batch-recovery munkamenete megvaltozott.');
+   const sent=onInspected(report,batchReport)===true;
    output.textContent='SharePoint naplóállapot: '+report.status+'\n'+labels[report.status]+
     '\nCheckpoint SHA-256: '+report.checkpointSha256+
     '\nElőnapló: '+(report.ahead?.name||'nincs')+
     '\nUtónapló: '+(report.result?.name||'nincs')+
+    (batchReport?'\nIgazolt korábbi batch-feladatok: '+batchReport.verifiedBatchCount+
+     '\nKövetkező csoport: '+(batchReport.nextBatchNumber??'nem engedélyezett')+
+     '\nBatch státusz: '+batchReport.status:'')+
     '\nMonday-írás az ellenőrzés során: 0.'+
     (sent?'\nAz eredmény a Monday TEST teljes-board ellenőrzéséhez átadva.':
      '\nAz eredmény csak az Uploaderben látható; a Monday ablak nem fogadta.');
