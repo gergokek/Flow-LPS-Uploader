@@ -109,7 +109,7 @@ export async function saveFinalSyncReceipt({
   closure.verifiedBatchTaskCount===ledger.verifiedBatchCount&&
   closure.changedTaskCount===ledger.verifiedBatchCount+1&&
   closure.remainingTaskCount===0&&
-  nonempty(closure.boardFingerprint)&&
+  hex(closure.boardFingerprint)&&
   closure.inspectedAt===ledger.inspectedAt,
   'A Monday teljes-board friss vegso bizonyiteka nem egyezik a SharePointtal.');
  const identity=await identityCheck({getAccessToken,fetcher,tenantId,accountTenantId});
