@@ -475,10 +475,10 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    old=new Map(plan?.base?.tasks?.map(t=>[t.id,t])||[]),
    editable=['anchor','forecast','actual','duration','ffLag','startPre',
     'finishPre','note','readiness','critical','week','endWeek','status','obstacles','ledger'];
-  const changed=plan?.base?.tasks?.filter(t=>{
-   const next=plan.working.find(v=>v.id===t.id);
-   return !!next&&editable.some(k=>JSON.stringify(t[k]??null)!==
-    JSON.stringify(next[k]??null));
+  const changed=plan?.working?.filter(t=>{
+   const original=old.get(t.id);
+   return !!original&&editable.some(k=>JSON.stringify(original[k]??null)!==
+    JSON.stringify(t[k]??null));
   }).map(t=>t.id).filter(id=>id!==report.verifiedPilotTaskId)||[];
   if(report.totalPendingBatchTasks!==changed.length||
      JSON.stringify(report.verifiedBatchTaskIds)!==
