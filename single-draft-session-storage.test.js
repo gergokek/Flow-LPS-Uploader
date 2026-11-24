@@ -123,7 +123,7 @@ test('resume independently re-reads all versions and append writes only V1.1',as
 test('tampered parent chain never silently recovers as latest draft',async()=>{
  const g=fakeGraph(),first=await g.store.start({createdBy:'entra-user'});
  const prepared=structuredClone(first.draft);
- prepared.version=1;prepared.history.push({revision:1,type:'edit'});
+ prepared.version=1;prepared.history.push({revision:1,type:'edit',at:'2026-11-24T12:00:00.000Z'});
  await g.store.append({updatedDraft:prepared,
   expectedSessionId:sessionId,expectedParentSha256:first.receipt.sha256});
  const f=g.files.get('Draft-Plans/draft-v1-r000001.json');
