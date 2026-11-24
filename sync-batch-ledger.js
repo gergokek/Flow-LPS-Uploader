@@ -54,9 +54,11 @@ export async function reconcileVerifiedBatchLedger({
  if(!before.length||before.length!==after.length||baseIds.size!==before.length||
     desired.size!==before.length||[...desired.keys()].some(id=>!baseIds.has(id)))
   throw Error('Az Approved Plan teljes feladatlistaja elter.');
+ const prior=new Map(before.map(t=>[t.id,t]));
  const changes=[];
- for(const item of before){
-  const next=desired.get(item.id),fields=[];
+ // Monday's domainDiff iterates Approved Plan working order.
+ for(const next of after){
+  const item=prior.get(next.id),fields=[];
   for(const key of new Set([...Object.keys(item),...Object.keys(next)])){
    if(key==='updatedAt'||same({value:item[key]},{value:next[key]}))continue;
    if(!writable.has(key))throw Error('Az Approved Plan nem szerkesztheto mezot is modosit: '+item.id);
