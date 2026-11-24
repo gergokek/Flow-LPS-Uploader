@@ -1,16 +1,19 @@
 const protocol='flow-lps-draft-handoff-v1';
 const nonceRegex=/^[0-9a-f-]{36}$/i;
 // Verified receipts are UI feedback only. They do not authorize Monday writes.
-export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{},onFinalizationIntent=async()=>false,onSyncDryRunVerified=()=>{},onPilotAheadRequested=()=>{},onPilotResultRequested=()=>{}}={}){
+export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{},onFinalizationIntent=async()=>false,onSyncDryRunVerified=()=>{},onPilotAheadRequested=()=>{},onPilotResultRequested=()=>{},
+ onBatchStartRequested=()=>{},onBatchAheadRequested=()=>{},onBatchResultRequested=()=>{}}={}){
  if(!win||typeof win.addEventListener!=='function'||typeof onDraft!=='function'||
     typeof onRevision!=='function'||typeof onAcceptedRevision!=='function'||
     typeof onFinalizationIntent!=='function'||typeof onSyncDryRunVerified!=='function'||
-    typeof onPilotAheadRequested!=='function'||typeof onPilotResultRequested!=='function')throw Error('Invalid handoff receiver');
+    typeof onPilotAheadRequested!=='function'||typeof onPilotResultRequested!=='function'||
+    typeof onBatchStartRequested!=='function'||typeof onBatchAheadRequested!=='function'||
+    typeof onBatchResultRequested!=='function')throw Error('Invalid handoff receiver');
  const params=new URLSearchParams((win.location.hash||'').replace(/^#/,''));
  const nonce=params.get('draft-handoff');
  if(!nonce||!nonceRegex.test(nonce)||!win.opener)
   return Object.freeze({active:false,close:()=>{},publishVerifiedReceipt:()=>false});
- let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null,lastPreviewAck=null,checkpointPublished=false,lastCheckpoint=null,pilotPending=null;
+ let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null,lastPreviewAck=null,checkpointPublished=false,lastCheckpoint=null,pilotPending=null,lastRecovery=null,batchSession=null;
  const close=()=>{closed=true;win.removeEventListener('message',handler);};
  const validProof=(proof,boardId)=>proof&&proof.boardId===boardId&&
   Number.isSafeInteger(proof.version)&&proof.version>0&&
@@ -44,6 +47,94 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    }catch{
     // A failed browser handoff cannot create any approved plan or write.
    }finally{busy=false;}
+   return;
+  }
+  if(kind==='batch-start-request'){
+   const intent=event.data?.intent,sessionId=event.data?.sessionId,
+    cp=lastCheckpoint?.checkpoint,approved=lastCheckpoint?.approved;
+   if(!accepted||event.origin!==accepted.sourceOrigin||!cp||!approved||
+      !checkpointPublished||batchSession||!lastRecovery||
+      lastRecovery.status!=='RESULT_VERIFIED'||
+      lastRecovery.result?.status!=='ITEM_READBACK_VERIFIED'||
+      !finalizationIntentAccepted||verifiedVersion!==accepted.version||
+      event.data.boardId!==accepted.boardId||
+      typeof sessionId!=='string'||!nonceRegex.test(sessionId)||
+      intent?.schemaVersion!==1||intent.format!=='flow-lps-batch-start-intent'||
+      intent.boardId!==accepted.boardId||intent.batchNumber!==1||
+      intent.approvedSha256!==approved.sha256||
+      intent.checkpointSha256!==cp.sha256||
+      intent.verifiedPilotTaskId!==lastRecovery.result.taskId||
+      intent.editorId!==cp.checkpoint?.mondayPreflight?.editorIdClaim||
+      !Array.isArray(intent.taskIds)||intent.taskIds.length<1||
+      intent.taskIds.length>10||intent.taskCount!==intent.taskIds.length||
+      new Set(intent.taskIds).size!==intent.taskCount)return;
+   const p=approved.approvedPlan.plan;
+   const old=new Map(p?.base?.tasks?.map(t=>[t.id,t])||[]);
+   const editable=['forecast','actual','anchor','duration','ffLag','startPre',
+    'finishPre','note','readiness','critical','week','endWeek','status','obstacles','ledger'];
+   const changed=p?.working?.filter(t=>{
+    const original=old.get(t.id);
+    return original&&editable.some(k=>JSON.stringify(original[k]??null)!==
+     JSON.stringify(t[k]??null));
+   }).map(t=>t.id).filter(id=>id!==intent.verifiedPilotTaskId)||[];
+   if(JSON.stringify(changed.slice(0,intent.taskCount))!==JSON.stringify(intent.taskIds))return;
+   const tasks=intent.taskIds.map(id=>{
+    const a=old.get(id),b=p.working.find(t=>t.id===id);
+    if(!a||!b)return null;
+    return {id,fieldNames:editable.filter(k=>JSON.stringify(a[k]??null)!==
+      JSON.stringify(b[k]??null)).sort()};
+   });
+   if(tasks.some(t=>!t||!t.fieldNames.length))return;
+   batchSession={sessionId,intent,tasks,phase:'WAITING_CONFIRMATION',
+    step:1,pendingId:null,aheadReceipt:null};
+   try{onBatchStartRequested(Object.freeze({sessionId,intent}));}
+   catch{batchSession.phase='STOPPED';}
+   return;
+  }
+  if(kind==='batch-ahead-request'){
+   const p=batchSession,e=event.data?.entry,requestId=event.data?.requestId;
+   if(!p||p.phase!=='ACTIVE'||!accepted||
+      event.origin!==accepted.sourceOrigin||
+      event.data.boardId!==accepted.boardId||
+      event.data.sessionId!==p.sessionId||
+      typeof requestId!=='string'||!nonceRegex.test(requestId)||
+      e?.schemaVersion!==1||e.format!=='flow-lps-batch-task-ahead'||
+      e.status!=='BATCH_WRITE_AHEAD'||e.boardId!==accepted.boardId||
+      e.approvedSha256!==p.intent.approvedSha256||
+      e.checkpointSha256!==p.intent.checkpointSha256||
+      e.batchNumber!==1||e.step!==p.step||
+      e.taskId!==p.tasks[p.step-1]?.id||
+      JSON.stringify([...e.fieldNames||[]].sort())!==
+       JSON.stringify(p.tasks[p.step-1]?.fieldNames)||
+      e.sourceFingerprint!==lastCheckpoint.checkpoint.checkpoint.mondaySourceFingerprint||
+      e.maximumMondayWrites!==1||e.actualMondayWrites!==0||
+      typeof e.checkedAt!=='string'||!Number.isFinite(Date.parse(e.checkedAt))||
+      Math.abs(Date.now()-Date.parse(e.checkedAt))>15*60*1000)return;
+   p.phase='AHEAD_PENDING';p.pendingId=requestId;
+   try{onBatchAheadRequested(Object.freeze({sessionId:p.sessionId,requestId,entry:e}));}
+   catch{p.phase='STOPPED';}
+   return;
+  }
+  if(kind==='batch-result-request'){
+   const p=batchSession,e=event.data?.entry,requestId=event.data?.requestId;
+   if(!p||p.phase!=='AHEAD_CONFIRMED'||!accepted||
+      event.origin!==accepted.sourceOrigin||
+      event.data.boardId!==accepted.boardId||
+      event.data.sessionId!==p.sessionId||
+      typeof requestId!=='string'||!nonceRegex.test(requestId)||
+      e?.schemaVersion!==1||e.format!=='flow-lps-batch-task-result'||
+      !['BATCH_ITEM_READBACK_VERIFIED','BATCH_ITEM_UNCERTAIN'].includes(e.status)||
+      e.boardId!==accepted.boardId||e.batchNumber!==1||
+      e.taskId!==p.tasks[p.step-1]?.id||e.step!==p.step||
+      e.approvedSha256!==p.intent.approvedSha256||
+      e.checkpointSha256!==p.intent.checkpointSha256||
+      e.writeAheadSha256!==p.aheadReceipt?.sha256||
+      e.mondayWritesAttempted!==1||
+      typeof e.readbackMatches!=='boolean')return;
+   p.phase='RESULT_PENDING';p.pendingId=requestId;
+   try{onBatchResultRequested(Object.freeze({sessionId:p.sessionId,requestId,
+    entry:e,aheadReceipt:p.aheadReceipt}));}
+   catch{p.phase='STOPPED';}
    return;
   }
   if(kind==='pilot-write-ahead-request'){
@@ -293,6 +384,52 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    return true;
   }catch{return false;}
  }
+ function publishBatchStart(sessionId){
+  const p=batchSession;
+  if(closed||!accepted||!p||p.phase!=='WAITING_CONFIRMATION'||
+     sessionId!==p.sessionId)return false;
+  p.phase='ACTIVE';
+  try{
+   win.opener.postMessage({protocol,kind:'batch-session-verified',nonce,
+    boardId:accepted.boardId,sessionId,taskIds:p.intent.taskIds,
+    approvedSha256:p.intent.approvedSha256,
+    checkpointSha256:p.intent.checkpointSha256},accepted.sourceOrigin);
+   return true;
+  }catch{p.phase='STOPPED';return false;}
+ }
+ function publishBatchJournal(phase,proof,requestId,sessionId){
+  const p=batchSession,step=p?.step;
+  if(closed||!accepted||!p||p.sessionId!==sessionId||
+     requestId!==p.pendingId||
+     p.phase!==(phase==='ahead'?'AHEAD_PENDING':'RESULT_PENDING')||
+     proof?.status!==(phase==='ahead'?'BATCH_AHEAD_VERIFIED':
+       'BATCH_RESULT_VERIFIED')&&!(phase==='result'&&
+        proof?.status==='BATCH_RESULT_UNCERTAIN')||
+     proof.boardId!==accepted.boardId||proof.taskId!==p.tasks[step-1]?.id||
+     proof.step!==step||proof.approvedSha256!==p.intent.approvedSha256||
+     proof.checkpointSha256!==p.intent.checkpointSha256||
+     proof.verification!=='content-sha256-and-etag'||
+     proof.mondayWriteLimit!==1||!proof.id||!proof.eTag||
+     !/^[a-f0-9]{64}$/.test(proof.sha256||''))return false;
+  const name='sync-batch-'+p.intent.approvedSha256.slice(0,24)+
+   '-step-'+String(step).padStart(4,'0')+'-'+phase+'.json';
+  if(proof.name!==name||
+     proof.path!=='Projects/'+accepted.boardId+'/Sync-Status/'+name)return false;
+  if(phase==='ahead'){p.aheadReceipt=proof;p.phase='AHEAD_CONFIRMED';}
+  else{
+   p.aheadReceipt=null;
+   if(proof.status==='BATCH_RESULT_UNCERTAIN')p.phase='STOPPED';
+   else if(step===p.tasks.length)p.phase='COMPLETE';
+   else{p.step++;p.phase='ACTIVE';}
+  }
+  p.pendingId=null;
+  try{
+   win.opener.postMessage({protocol,
+    kind:phase==='ahead'?'batch-ahead-verified':'batch-result-verified',nonce,
+    boardId:accepted.boardId,sessionId,requestId,proof},accepted.sourceOrigin);
+   return true;
+  }catch{p.phase='STOPPED';return false;}
+ }
  function publishSyncRecovery(report){
   const cp=lastCheckpoint?.checkpoint,approved=lastCheckpoint?.approved;
   if(closed||!accepted||busy||!checkpointPublished||!cp||!approved||
@@ -331,8 +468,9 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    if(JSON.stringify(report).length>100000)return false;
    win.opener.postMessage({protocol,kind:'sync-recovery-report',nonce,
     boardId:accepted.boardId,report},accepted.sourceOrigin);
+   if(report.status==='RESULT_VERIFIED')lastRecovery=report;
    return true;
   }catch{return false;}
  }
- return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint,publishPilotAhead,publishPilotResult,publishSyncRecovery});
+ return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint,publishPilotAhead,publishPilotResult,publishSyncRecovery,publishBatchStart,publishBatchJournal});
 }
