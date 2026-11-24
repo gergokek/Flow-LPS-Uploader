@@ -70,7 +70,7 @@ export async function saveFinalSyncReceipt({
  // First, inspect every immutable journal directly from SharePoint. Never
  // trust a browser-forwarded ALL_VERIFIED or a stale ledger as authority.
  const ledger=await inspectBatch({boardId,driveId,approvedReceipt,
-  checkpointReceipt,getAccessToken,fetcher,assertCurrent:check,now});
+  checkpointReceipt,getAccessToken,fetcher,assertCurrent:()=>{check();return true;},now});
  check();
  strict(ledger?.status==='ALL_VERIFIED'&&ledger.boardId===boardId&&
   ledger.approvedPlanSha256===approvedReceipt.sha256&&
