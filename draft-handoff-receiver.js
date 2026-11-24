@@ -52,6 +52,8 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
   if(kind==='batch-start-request'){
    const intent=event.data?.intent,sessionId=event.data?.sessionId,
     cp=lastCheckpoint?.checkpoint,approved=lastCheckpoint?.approved;
+   const first=intent?.batchNumber===1,startStep=intent?.startStep??1,
+    ledger=lastBatchRecovery;
    if(!accepted||event.origin!==accepted.sourceOrigin||!cp||!approved||
       !checkpointPublished||batchSession||!lastRecovery||
       lastRecovery.status!=='RESULT_VERIFIED'||
@@ -60,7 +62,16 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
       event.data.boardId!==accepted.boardId||
       typeof sessionId!=='string'||!nonceRegex.test(sessionId)||
       intent?.schemaVersion!==1||intent.format!=='flow-lps-batch-start-intent'||
-      intent.boardId!==accepted.boardId||intent.batchNumber!==1||
+      intent.boardId!==accepted.boardId||
+      !Number.isSafeInteger(intent.batchNumber)||intent.batchNumber<1||
+      !Number.isSafeInteger(startStep)||startStep<1||startStep>9999||
+      intent.batchNumber!==Math.floor((startStep-1)/10)+1||
+      (!first&&(!ledger||ledger.status!=='NEXT_BATCH_READY'||
+       ledger.nextBatchNumber!==intent.batchNumber||
+       ledger.nextStep!==startStep||
+       ledger.evidenceSha256!==intent.priorLedgerSha256||
+       JSON.stringify(ledger.nextTaskIds)!==JSON.stringify(intent.taskIds)))||
+      (first&&(startStep!==1||ledger&&ledger.status!=='FIRST_BATCH_READY'))||
       intent.approvedSha256!==approved.sha256||
       intent.checkpointSha256!==cp.sha256||
       intent.verifiedPilotTaskId!==lastRecovery.result.taskId||
@@ -77,7 +88,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
     return original&&editable.some(k=>JSON.stringify(original[k]??null)!==
      JSON.stringify(t[k]??null));
    }).map(t=>t.id).filter(id=>id!==intent.verifiedPilotTaskId)||[];
-   if(JSON.stringify(changed.slice(0,intent.taskCount))!==JSON.stringify(intent.taskIds))return;
+   if(JSON.stringify(changed.slice(startStep-1,startStep-1+intent.taskCount))!==JSON.stringify(intent.taskIds))return;
    const tasks=intent.taskIds.map(id=>{
     const a=old.get(id),b=p.working.find(t=>t.id===id);
     if(!a||!b)return null;
@@ -85,8 +96,8 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
       JSON.stringify(b[k]??null)).sort()};
    });
    if(tasks.some(t=>!t||!t.fieldNames.length))return;
-   batchSession={sessionId,intent,tasks,phase:'WAITING_CONFIRMATION',
-    step:1,pendingId:null,aheadReceipt:null};
+   batchSession={sessionId,intent:{...intent,startStep},tasks,
+    phase:'WAITING_CONFIRMATION',step:startStep,pendingId:null,aheadReceipt:null};
    try{onBatchStartRequested(Object.freeze({sessionId,intent}));}
    catch{batchSession.phase='STOPPED';}
    return;
@@ -102,10 +113,10 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
       e.status!=='BATCH_WRITE_AHEAD'||e.boardId!==accepted.boardId||
       e.approvedSha256!==p.intent.approvedSha256||
       e.checkpointSha256!==p.intent.checkpointSha256||
-      e.batchNumber!==1||e.step!==p.step||
-      e.taskId!==p.tasks[p.step-1]?.id||
+      e.batchNumber!==p.intent.batchNumber||e.step!==p.step||
+      e.taskId!==p.tasks[p.step-p.intent.startStep]?.id||
       (!Array.isArray(e.fieldNames)||JSON.stringify([...e.fieldNames].sort())!==
-       JSON.stringify(p.tasks[p.step-1]?.fieldNames))||
+       JSON.stringify(p.tasks[p.step-p.intent.startStep]?.fieldNames))||
       e.sourceFingerprint!==lastCheckpoint.checkpoint.checkpoint.mondaySourceFingerprint||
       e.maximumMondayWrites!==1||e.actualMondayWrites!==0||
       typeof e.checkedAt!=='string'||!Number.isFinite(Date.parse(e.checkedAt))||
@@ -124,8 +135,8 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
       typeof requestId!=='string'||!nonceRegex.test(requestId)||
       e?.schemaVersion!==1||e.format!=='flow-lps-batch-task-result'||
       !['BATCH_ITEM_READBACK_VERIFIED','BATCH_ITEM_UNCERTAIN'].includes(e.status)||
-      e.boardId!==accepted.boardId||e.batchNumber!==1||
-      e.taskId!==p.tasks[p.step-1]?.id||e.step!==p.step||
+      e.boardId!==accepted.boardId||e.batchNumber!==p.intent.batchNumber||
+      e.taskId!==p.tasks[p.step-p.intent.startStep]?.id||e.step!==p.step||
       e.approvedSha256!==p.intent.approvedSha256||
       e.checkpointSha256!==p.intent.checkpointSha256||
       e.writeAheadSha256!==p.aheadReceipt?.sha256||
@@ -392,6 +403,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
   try{
    win.opener.postMessage({protocol,kind:'batch-session-verified',nonce,
     boardId:accepted.boardId,sessionId,taskIds:p.intent.taskIds,
+    startStep:p.intent.startStep,batchNumber:p.intent.batchNumber,
     approvedSha256:p.intent.approvedSha256,
     checkpointSha256:p.intent.checkpointSha256},accepted.sourceOrigin);
    return true;
@@ -405,7 +417,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
      proof?.status!==(phase==='ahead'?'BATCH_AHEAD_VERIFIED':
        'BATCH_RESULT_VERIFIED')&&!(phase==='result'&&
         proof?.status==='BATCH_RESULT_UNCERTAIN')||
-     proof.boardId!==accepted.boardId||proof.taskId!==p.tasks[step-1]?.id||
+     proof.boardId!==accepted.boardId||proof.taskId!==p.tasks[step-p.intent.startStep]?.id||
      proof.step!==step||proof.approvedSha256!==p.intent.approvedSha256||
      proof.checkpointSha256!==p.intent.checkpointSha256||
      proof.verification!=='content-sha256-and-etag'||
@@ -419,7 +431,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
   else{
    p.aheadReceipt=null;
    if(proof.status==='BATCH_RESULT_UNCERTAIN')p.phase='STOPPED';
-   else if(step===p.tasks.length)p.phase='COMPLETE';
+   else if(step===p.intent.startStep+p.tasks.length-1)p.phase='COMPLETE';
    else{p.step++;p.phase='ACTIVE';}
   }
   p.pendingId=null;
