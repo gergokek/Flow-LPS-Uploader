@@ -11,6 +11,7 @@ import {mountSyncCheckpointAction} from './sync-checkpoint-ui.js';
 import {mountSyncRecoveryAction} from './sync-recovery-ui.js';
 import {mountStoredSyncRecovery} from './sync-recovery-history-ui.js';
 import {mountTestBatchSession} from './sync-batch-session-ui.js';
+import {mountFinalSyncReceiptAction} from './sync-final-receipt-ui.js';
 import {mountSingleTaskJournalControl} from './pilot-journal-ui.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import {createProjectStorage} from './project-storage.js';
@@ -549,12 +550,35 @@ const testBatchSession=mountTestBatchSession({
   draftHandoff.publishBatchJournal(phase,proof,requestId,sessionId)
 });
 
+const finalReceiptAction=mountFinalSyncReceiptAction({
+ button:document.querySelector('#confirmFinalSyncReceipt'),
+ output:document.querySelector('#finalSyncReceiptResult'),
+ driveId,tenantId,
+ getCurrent:()=>({
+  boardId:projectBoard.value.trim(),approved:approvedSyncCandidate,
+  checkpoint:pilotCheckpointCandidate,recovery:batchRecoveryCandidate,
+  batchLedger:batchLedgerCandidate,account:msal.getAllAccounts()[0]||null
+ }),
+ getAccessToken:async account=>{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected',
+   'https://graph.microsoft.com/User.Read'],account,redirectUri};
+  try{return (await msal.acquireTokenSilent(request)).accessToken;}
+  catch(e){
+   if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;
+   return (await msal.acquireTokenPopup(request)).accessToken;
+  }
+ },
+ confirm:message=>window.confirm(message),
+ requestLiveClosure:(ledger,requestId)=>draftHandoff.requestFinalProof(ledger,requestId),
+ onStored:(receipt,requestId)=>draftHandoff.publishFinalReceipt(receipt,requestId)
+});
+
 const editedFile=document.querySelector('#editedDraftFile');
 const editedSave=document.querySelector('#saveEditedDraft');
 const editedStatus=document.querySelector('#editedDraftStatus');
 const editedResult=document.querySelector('#editedDraftSaveResult');
 editedFile.addEventListener('change',async()=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();testBatchSession.clear();batchRecoveryCandidate=null;batchLedgerCandidate=null;pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();testBatchSession.clear();finalReceiptAction.clear();batchRecoveryCandidate=null;batchLedgerCandidate=null;pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();
  document.querySelector('#finalizationIntentResult').textContent='Nincs aktuális véglegesítési kérelem.';
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs feltoltes.';
@@ -616,7 +640,7 @@ autoCheckbox.addEventListener('change',()=>{
  }else sessionAutosave.disable();
 });
 const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();testBatchSession.clear();batchRecoveryCandidate=null;batchLedgerCandidate=null;pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();testBatchSession.clear();finalReceiptAction.clear();batchRecoveryCandidate=null;batchLedgerCandidate=null;pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
  editedDraftText=null;editedDraftChecked=null;editedSave.disabled=true;editedVerifyButton.disabled=true;
  editedResult.textContent='Nincs SharePoint-mentes. Felhasznaloi megerosites szukseges.';
  try{
@@ -630,7 +654,7 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
   return {boardId:valid.boardId,version:valid.version,sha256:valid.sha256,bytes:valid.bytes};
  }catch(e){editedStatus.textContent='Monday DRAFT-atadas elutasitva: '+(e?.message||e);throw e;}
 },onRevision:async({content,boardId})=>{
- savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();testBatchSession.clear();batchRecoveryCandidate=null;batchLedgerCandidate=null;pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
+ savedReview.clear();approvedPlanAction.clear();syncCheckpointAction.clear();pilotJournalControl.clear();syncRecoveryAction.clear();testBatchSession.clear();finalReceiptAction.clear();batchRecoveryCandidate=null;batchLedgerCandidate=null;pilotCheckpointCandidate=null;invalidateApprovedSyncCandidate();resetFinalizationIntent();
  if(boardId!==projectBoard.value.trim())throw Error('Eltero Monday-board.');
  const valid=await validateEditedDraft(content,boardId);
  if(editedDraftChecked&&valid.version<=editedDraftChecked.version)
@@ -663,6 +687,12 @@ const draftHandoff=attachDraftHandoff({onDraft:async({content,boardId})=>{
  if(syncCheckpointAction.receive(approvedSyncCandidate,report)){
   syncDryRunOutput.textContent='A Monday TEST sikeres szárazpróbája visszaigazolva. '+
    'Most a Sync-Status checkpoint külön gombbal elmenthető; Monday-írás továbbra sincs.';
+ }
+},onFinalReceiptRequested:request=>{
+ if(!finalReceiptAction.receive(request)){
+  document.querySelector('#finalSyncReceiptResult').textContent=
+   'Zárónyugta-kérelem elutasítva: eltér a DRAFT, Approved Plan, checkpoint, '+
+   'SharePoint-napló vagy a Microsoft-felhasználó.';
  }
 },onBatchStartRequested:request=>{
  if(!testBatchSession.acceptStart(request)){
