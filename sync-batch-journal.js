@@ -38,12 +38,33 @@ function verify({entry,checkpointReceipt,approvedReceipt,boardId,kind,aheadRecei
     approvedReceipt.verification!=='content-sha256-and-etag'||
     checkpointReceipt.approvedPlanSha256!==approvedReceipt.sha256||
     entry?.schemaVersion!==1||entry.boardId!==boardId||
-    entry.batchNumber!==1||!Number.isSafeInteger(entry.step)||
-    entry.step<1||entry.step>10||
+    !Number.isSafeInteger(entry.batchNumber)||entry.batchNumber<1||
+    !Number.isSafeInteger(entry.step)||entry.step<1||entry.step>9999||
+    entry.batchNumber!==Math.floor((entry.step-1)/10)+1||
     !/^\d+$/.test(entry.taskId||'')||
     entry.approvedSha256!==approvedReceipt.sha256||
     entry.checkpointSha256!==checkpointReceipt.sha256)
   throw Error('Elteto vagy bizonytalan szinkron ellenorzopont.');
+ // Exact SharePoint-verified ledger position binds every later step to the
+ // already completed journal prefix, not a self-reported Monday cursor.
+ const progress=checkpointReceipt.batchProgress;
+ if(progress?.schemaVersion!==1||
+    progress.format!=='flow-lps-batch-ledger-recovery'||
+    !['FIRST_BATCH_READY','NEXT_BATCH_READY'].includes(progress.status)||
+    progress.canPrepareNextBatch!==true||
+    progress.boardId!==boardId||
+    progress.approvedPlanSha256!==approvedReceipt.sha256||
+    progress.checkpointSha256!==checkpointReceipt.sha256||
+    !hex(progress.evidenceSha256)||
+    progress.nextBatchNumber!==entry.batchNumber||
+    !Number.isSafeInteger(progress.nextStep)||
+    entry.step<progress.nextStep||
+    entry.step>=progress.nextStep+progress.nextTaskIds?.length||
+    progress.nextTaskIds?.[entry.step-progress.nextStep]!==entry.taskId||
+    progress.verifiedBatchCount!==progress.nextStep-1||
+    progress.verifiedBatchCount%10!==0||
+    progress.automaticallyResume!==false)
+  throw Error('Nincs hitelesitett, ehhez a batch-sorszamhoz tartozo recovery.');
  const plan=approvedReceipt.approvedPlan;
  const old=plan?.plan?.base?.tasks?.find(t=>t.id===entry.taskId);
  const next=plan?.plan?.working?.find(t=>t.id===entry.taskId);
@@ -162,7 +183,7 @@ export function createBatchTaskJournal({boardId,driveId,getAccessToken,fetcher=f
    const ahead=await readVerified(aheadName,aheadReceipt);
    if(ahead?.format!=='flow-lps-batch-task-ahead'||
       ahead.status!=='BATCH_WRITE_AHEAD'||ahead.taskId!==entry.taskId||
-      ahead.step!==entry.step||ahead.batchNumber!==1||
+      ahead.step!==entry.step||ahead.batchNumber!==entry.batchNumber||
       ahead.checkpointSha256!==checkpointReceipt.sha256||
       ahead.approvedSha256!==approvedReceipt.sha256)
     throw Error('Az iras elotti naplo nem igazolt.');
