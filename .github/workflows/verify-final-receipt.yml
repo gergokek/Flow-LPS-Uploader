@@ -2,6 +2,8 @@ name: Uploader final receipt - isolated verification
 on:
   push:
     branches: [feat/test-sync-final-receipt]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,5 +25,5 @@ jobs:
         run: npm run build
       - name: Verify branch never publishes Pages
         run: |
-          test "$GITHUB_REF_NAME" = 'feat/test-sync-final-receipt'
+          test "$GITHUB_EVENT_NAME" != 'push' || test "$GITHUB_REF_NAME" = 'feat/test-sync-final-receipt'
           test -d dist
