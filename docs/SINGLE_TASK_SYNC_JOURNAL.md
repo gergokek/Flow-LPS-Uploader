@@ -52,3 +52,15 @@ A `sync-batch-session-ui.js` egyetlen, explicit felhasználói megerősítés ut
 Megszakítás, nem visszaigazolt SHA/eTag, nem megfelelő Microsoft-fiók, hiba vagy bizonytalan Monday-írás esetén a batch leáll. Az elkészült előnapló **nem bizonyítja a Monday-írás elmaradását**, ezért nincs automatikus retry.
 
 A soron következő, második és későbbi batch futtatása szándékosan nem engedélyezett. A történeti recovery eszközt ki kell egészíteni a `sync-batch-*` naplók teljes újraellenőrzésével, mielőtt tartós folytatási pozícióra bármilyen írási engedély épülhetne.
+
+## Többcsoportos SharePoint recovery
+
+A `sync-batch-ledger.js` az eredeti, véglegesített Approved Plan alapján tételesen ellenőrzi a soron következő tízfeladatos csoportok már végrehajtott feladatait. Egy feladat csak akkor minősül igazoltnak, ha **mindkét különálló, felülírásmentes elő- és utónaplója** megvan, pontosan egyezik a tervezett sorszám, feladatazonosító, mezők és SHA-256 lánc, a Monday-readback pedig sikeres.
+
+A `sync-batch-recovery-inspect.js` közvetlenül Graph GET-tel listázza a TEST `Sync-Status` mappa összes, az Approved Planhez tartozó batch-fájlját; minden fájlt teljes tartalommal és dupla metaadat/eTag visszaellenőrzéssel olvas vissza. A 403/500 hiba, hiányos lista, ritkás sorszám, orphan eredmény vagy bizonytalan Monday-írás **blokkolja a folytatást**.
+
+`FIRST_BATCH_READY` = nincs korábbi batch-napló; `NEXT_BATCH_READY` = az eddigi batch-ek minden eleme igazolt és 10-es határon végződik; `ALL_VERIFIED` = nincs további feladat; `MANUAL_RECONCILIATION_REQUIRED` = nem biztonságos automatikus következtetni. A jelentés írásmentes, és nem önálló végrehajtási engedély.
+
+**Új batch indításakor az Uploader még egyszer, a felhasználói jóváhagyás pillanatában visszaolvassa a teljes korábbi SharePoint-naplóláncot.** A következő batch indulhat, de csak külön Monday- és Uploader-megerősítés után, egyező naplósor-hash és abszolút sorszám mellett. A végrehajtásban maximum tíz TEST-feladat szerepel, és minden egyes mutation után új, immutable SHA/eTag alapú utónapló keletkezik.
+
+A történeti checkpointkeresőben böngészőbezárás után is megjelenik a korábban igazolt batch-feladatok száma. Ez csak olvasás; a régi, megszakadt munkamenet automatikus helyreállítása és újraindítása továbbra is tiltott.
