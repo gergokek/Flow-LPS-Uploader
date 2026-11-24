@@ -104,8 +104,8 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
       e.checkpointSha256!==p.intent.checkpointSha256||
       e.batchNumber!==1||e.step!==p.step||
       e.taskId!==p.tasks[p.step-1]?.id||
-      JSON.stringify([...e.fieldNames||[]].sort())!==
-       JSON.stringify(p.tasks[p.step-1]?.fieldNames)||
+      (!Array.isArray(e.fieldNames)||JSON.stringify([...e.fieldNames].sort())!==
+       JSON.stringify(p.tasks[p.step-1]?.fieldNames))||
       e.sourceFingerprint!==lastCheckpoint.checkpoint.checkpoint.mondaySourceFingerprint||
       e.maximumMondayWrites!==1||e.actualMondayWrites!==0||
       typeof e.checkedAt!=='string'||!Number.isFinite(Date.parse(e.checkedAt))||
@@ -233,7 +233,7 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    if(!validProof(verified,boardId))throw Error('DRAFT validation failed');
    if(accepted&&verified.version<=accepted.version)throw Error('Older or duplicate DRAFT revision');
    if(closed)return;
-   finalizationIntentAccepted=false;syncPreviewPending=null;lastPreviewAck=null;checkpointPublished=false;lastCheckpoint=null;pilotPending=null;
+   finalizationIntentAccepted=false;syncPreviewPending=null;lastPreviewAck=null;checkpointPublished=false;lastCheckpoint=null;pilotPending=null;lastRecovery=null;batchSession=null;
    accepted={boardId,version:verified.version,sha256:verified.sha256,
     bytes:verified.bytes,sourceOrigin:event.origin};
    win.opener?.postMessage({protocol,kind:'received',nonce,version:verified.version,sha256:verified.sha256},event.origin);
