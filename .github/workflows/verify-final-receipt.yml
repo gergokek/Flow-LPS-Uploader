@@ -1,0 +1,28 @@
+name: Uploader final receipt - isolated verification
+on:
+  push:
+    branches: [feat/test-sync-final-receipt]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned dependencies
+        run: npm install --no-audit --no-fund
+      - name: Synthetic tests only
+        run: npm test
+      - name: Build static Uploader
+        run: npm run build
+      - name: Verify branch never publishes Pages
+        run: |
+          test "$GITHUB_EVENT_NAME" != 'push' || test "$GITHUB_REF_NAME" = 'feat/test-sync-final-receipt'
+          test -d dist

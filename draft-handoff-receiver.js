@@ -2,19 +2,26 @@ const protocol='flow-lps-draft-handoff-v1';
 const nonceRegex=/^[0-9a-f-]{36}$/i;
 // Verified receipts are UI feedback only. They do not authorize Monday writes.
 export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},onAcceptedRevision=()=>{},onFinalizationIntent=async()=>false,onSyncDryRunVerified=()=>{},onPilotAheadRequested=()=>{},onPilotResultRequested=()=>{},
- onBatchStartRequested=()=>{},onBatchAheadRequested=()=>{},onBatchResultRequested=()=>{}}={}){
+ onBatchStartRequested=()=>{},onBatchAheadRequested=()=>{},onBatchResultRequested=()=>{},
+ onFinalReceiptRequested=()=>{}}={}){
  if(!win||typeof win.addEventListener!=='function'||typeof onDraft!=='function'||
     typeof onRevision!=='function'||typeof onAcceptedRevision!=='function'||
     typeof onFinalizationIntent!=='function'||typeof onSyncDryRunVerified!=='function'||
     typeof onPilotAheadRequested!=='function'||typeof onPilotResultRequested!=='function'||
     typeof onBatchStartRequested!=='function'||typeof onBatchAheadRequested!=='function'||
-    typeof onBatchResultRequested!=='function')throw Error('Invalid handoff receiver');
+    typeof onBatchResultRequested!=='function'||
+    typeof onFinalReceiptRequested!=='function')throw Error('Invalid handoff receiver');
  const params=new URLSearchParams((win.location.hash||'').replace(/^#/,''));
  const nonce=params.get('draft-handoff');
  if(!nonce||!nonceRegex.test(nonce)||!win.opener)
   return Object.freeze({active:false,close:()=>{},publishVerifiedReceipt:()=>false});
- let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null,lastPreviewAck=null,checkpointPublished=false,lastCheckpoint=null,pilotPending=null,lastRecovery=null,lastBatchRecovery=null,batchSession=null;
- const close=()=>{closed=true;win.removeEventListener('message',handler);};
+ let closed=false,accepted=null,busy=false,verifiedVersion=0,finalizationIntentAccepted=false,syncPreviewPending=null,lastPreviewAck=null,checkpointPublished=false,lastCheckpoint=null,pilotPending=null,lastRecovery=null,lastBatchRecovery=null,batchSession=null,finalPending=null,finalProofPending=null,finalUsed=false;
+ const close=()=>{closed=true;
+  if(finalProofPending){win.clearTimeout(finalProofPending.timer);
+   finalProofPending.reject(Error('Az Uploader munkamenet bezarult.'));
+   finalProofPending=null;}
+  win.removeEventListener('message',handler);
+ };
  const validProof=(proof,boardId)=>proof&&proof.boardId===boardId&&
   Number.isSafeInteger(proof.version)&&proof.version>0&&
   Number.isSafeInteger(proof.bytes)&&proof.bytes>0&&proof.bytes<=5_000_000&&
@@ -23,6 +30,59 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
   if(closed||busy||event.source!==win.opener||event.data?.protocol!==protocol||
    event.data?.nonce!==nonce||event.origin==='null'||!/^https:\/\//.test(event.origin))return;
   const kind=event.data?.kind;
+  if(kind==='sync-final-request'){
+   const intent=event.data?.intent,requestId=event.data?.requestId,
+    approved=lastCheckpoint?.approved,cp=lastCheckpoint?.checkpoint,
+    ledger=lastBatchRecovery,pilot=lastRecovery;
+   if(!accepted||event.origin!==accepted.sourceOrigin||
+      !checkpointPublished||!finalizationIntentAccepted||
+      verifiedVersion!==accepted.version||finalUsed||finalPending||
+      event.data.boardId!==accepted.boardId||
+      !nonceRegex.test(requestId||'')||
+      intent?.schemaVersion!==1||
+      intent.format!=='flow-lps-sync-final-intent'||
+      intent.status!=='REQUEST_ONLY'||
+      intent.boardId!==accepted.boardId||
+      intent.approvedPlanSha256!==approved?.sha256||
+      intent.checkpointSha256!==cp?.sha256||
+      intent.sourceFingerprint!==approved?.approvedPlan?.sourceFingerprint||
+      intent.verifiedPilotTaskId!==pilot?.result?.taskId||
+      intent.editorId!==cp?.checkpoint?.mondayPreflight?.editorIdClaim||
+      intent.ledgerEvidenceSha256!==ledger?.evidenceSha256||
+      ledger?.status!=='ALL_VERIFIED'||ledger.remainingTaskCount!==0||
+      ledger.canPrepareNextBatch!==false||
+      !/^[0-9a-f]{64}$/.test(intent.boardFingerprint||'')||
+      !Number.isSafeInteger(intent.changedTaskCount)||
+      intent.changedTaskCount!==ledger.verifiedBatchCount+1||
+      typeof intent.confirmedAt!=='string'||
+      !Number.isFinite(Date.parse(intent.confirmedAt))||
+      Math.abs(Date.now()-Date.parse(intent.confirmedAt))>120000)return;
+   finalPending={requestId,intent,phase:'WAITING_CONFIRMATION',proof:null};
+   try{onFinalReceiptRequested(Object.freeze({requestId,intent}));}
+   catch{finalPending.phase='STOPPED';}
+   return;
+  }
+  if(kind==='sync-final-proof-response'){
+   const p=finalProofPending;
+   if(!p||!finalPending||finalPending.phase!=='VERIFYING'||
+      event.origin!==accepted?.sourceOrigin||
+      event.data.boardId!==accepted?.boardId||
+      event.data.requestId!==p.requestId||
+      event.data.challengeId!==p.challengeId)return;
+   win.clearTimeout(p.timer);finalProofPending=null;
+   const closure=event.data.closure;
+   if(closure?.format!=='flow-lps-test-sync-closure-preview'||
+      closure.status!=='ALL_VERIFIED_CLOSURE_PREVIEW'||
+      closure.boardId!==accepted.boardId||
+      closure.approvedPlanSha256!==finalPending.intent.approvedPlanSha256||
+      closure.ledgerEvidenceSha256!==p.ledgerSha256||
+      !/^[0-9a-f]{64}$/.test(closure.boardFingerprint||'')||
+      closure.readOnly!==true||closure.mutationAllowed!==false){
+    finalPending.phase='STOPPED';p.reject(Error('A Monday friss teljes-board bizonyiteka ervenytelen.'));return;
+   }
+   finalPending.proof=closure;finalPending.phase='PROOF_VERIFIED';
+   p.resolve(closure);return;
+  }
   if(kind==='finalization-intent'){
    if(!accepted||verifiedVersion!==accepted.version||finalizationIntentAccepted||
       event.origin!==accepted.sourceOrigin||event.data.boardId!==accepted.boardId)return;
@@ -504,7 +564,59 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
        report.verifiedBatchCount>=batchSession.intent.startStep+
         batchSession.tasks.length-1)batchSession=null;
     lastBatchRecovery=report;
-   }else lastBatchRecovery=null;
+   }else lastBatchRecovery=report.status==='ALL_VERIFIED'?report:null;
+   return true;
+  }catch{return false;}
+ }
+ function requestFinalProof(ledger,requestId,limitMs=90000){
+  const p=finalPending;
+  if(closed||busy||!accepted||!p||p.requestId!==requestId||
+     p.phase!=='WAITING_CONFIRMATION'||finalProofPending||
+     ledger?.status!=='ALL_VERIFIED'||ledger.boardId!==accepted.boardId||
+     ledger.approvedPlanSha256!==p.intent.approvedPlanSha256||
+     ledger.checkpointSha256!==p.intent.checkpointSha256||
+     ledger.evidenceSha256!==p.intent.ledgerEvidenceSha256||
+     !Number.isFinite(limitMs)||limitMs<1000||limitMs>90000)
+   return Promise.reject(Error('A vegso Monday igazolaskeres nem engedelyezett.'));
+  p.phase='VERIFYING';
+  return new Promise((resolve,reject)=>{
+   const challengeId=crypto.randomUUID();
+   const timer=win.setTimeout(()=>{
+    if(finalProofPending?.challengeId===challengeId){
+     finalProofPending=null;p.phase='STOPPED';
+     reject(Error('Nem erkezett friss Monday board-igazolas.'));
+    }
+   },limitMs);
+   finalProofPending={requestId,challengeId,timer,resolve,reject,
+    ledgerSha256:ledger.evidenceSha256};
+   try{win.opener.postMessage({protocol,kind:'sync-final-proof-request',
+    nonce,boardId:accepted.boardId,requestId,challengeId,ledger},
+    accepted.sourceOrigin);}
+   catch(e){win.clearTimeout(timer);finalProofPending=null;p.phase='STOPPED';reject(e);}
+  });
+ }
+ function publishFinalReceipt(receipt,requestId){
+  const p=finalPending,proof=p?.proof,approved=lastCheckpoint?.approved,
+   cp=lastCheckpoint?.checkpoint;
+  if(closed||!accepted||!p||p.phase!=='PROOF_VERIFIED'||
+     requestId!==p.requestId||finalUsed||
+     receipt?.status!=='SYNC_FINAL_RECEIPT_STORED'||
+     receipt.boardId!==accepted.boardId||
+     receipt.approvedPlanSha256!==approved?.sha256||
+     receipt.checkpointSha256!==cp?.sha256||
+     receipt.ledgerEvidenceSha256!==proof?.ledgerEvidenceSha256||
+     receipt.boardFingerprint!==proof?.boardFingerprint||
+     receipt.verification!=='content-sha256-and-etag'||
+     receipt.mondayWrites!==0||
+     receipt.automaticallyRetryable!==false||
+     !/^[0-9a-f]{64}$/.test(receipt.sha256||'')||
+     !receipt.id||!receipt.eTag)return false;
+  const name='sync-final-'+approved.sha256.slice(0,24)+'.json';
+  if(receipt.name!==name||
+     receipt.path!=='Projects/'+accepted.boardId+'/Sync-Status/'+name)return false;
+  finalUsed=true;p.phase='COMPLETE';
+  try{win.opener.postMessage({protocol,kind:'sync-final-receipt-verified',
+   nonce,boardId:accepted.boardId,requestId,receipt},accepted.sourceOrigin);
    return true;
   }catch{return false;}
  }
@@ -550,5 +662,6 @@ export function attachDraftHandoff({win=window,onDraft,onRevision=async()=>{},on
    return true;
   }catch{return false;}
  }
- return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint,publishPilotAhead,publishPilotResult,publishSyncRecovery,publishBatchRecovery,publishBatchStart,publishBatchJournal});
+ return Object.freeze({active:true,close,publishVerifiedReceipt,publishApprovedSyncPreview,publishVerifiedCheckpoint,publishPilotAhead,publishPilotResult,publishSyncRecovery,publishBatchRecovery,publishBatchStart,publishBatchJournal,
+  requestFinalProof,publishFinalReceipt});
 }
