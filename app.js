@@ -9,6 +9,7 @@ import {mountSavedDraftReview} from './review-preflight-ui.js';
 import {mountApprovedPlanAction} from './approved-plan-ui.js';
 import {mountSyncCheckpointAction} from './sync-checkpoint-ui.js';
 import {mountSyncRecoveryAction} from './sync-recovery-ui.js';
+import {mountStoredSyncRecovery} from './sync-recovery-history-ui.js';
 import {mountSingleTaskJournalControl} from './pilot-journal-ui.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import {createProjectStorage} from './project-storage.js';
@@ -39,6 +40,7 @@ const msal=new PublicClientApplication({
 });
 function showAccount(account){
  graphButton.disabled=!account;
+ document.querySelector('#listStoredSyncCheckpoints').disabled=!account||projectBoard.value.trim()!=='5107075373';
  projectSetup.disabled=!account;
  draftSaveButton.disabled=!account||!draftTransferText;
  editedSave.disabled=!account||!editedDraftText;
@@ -491,6 +493,28 @@ const syncRecoveryAction=mountSyncRecoveryAction({
  },
  onInspected:report=>draftHandoff.publishSyncRecovery(report)
 });
+
+const storedSyncRecovery=mountStoredSyncRecovery({
+ listButton:document.querySelector('#listStoredSyncCheckpoints'),
+ select:document.querySelector('#storedSyncCheckpoint'),
+ inspectButton:document.querySelector('#inspectStoredSyncCheckpoint'),
+ output:document.querySelector('#storedSyncRecoveryResult'),
+ driveId,
+ getCurrent:()=>({
+  boardId:projectBoard.value.trim(),account:msal.getAllAccounts()[0]||null
+ }),
+ getAccessToken:async account=>{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected',
+   'https://graph.microsoft.com/User.Read'],account,redirectUri};
+  try{return (await msal.acquireTokenSilent(request)).accessToken;}
+  catch(e){
+   if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))throw e;
+   return (await msal.acquireTokenPopup(request)).accessToken;
+  }
+ },
+ onInspected:entry=>draftHandoff.publishSyncRecovery?.(entry.report)===true
+});
+projectBoard.addEventListener('change',()=>storedSyncRecovery.clear());
 
 const editedFile=document.querySelector('#editedDraftFile');
 const editedSave=document.querySelector('#saveEditedDraft');
