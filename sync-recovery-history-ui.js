@@ -73,6 +73,9 @@ export function mountStoredSyncRecovery({
      '\nSharePoint állapot: '+r.status+
      '\nElőnapló: '+(r.ahead?.name||'nincs')+
      '\nUtónapló: '+(r.result?.name||'nincs')+
+     (inspected.batchReport?'\nIgazolt korábbi batch-feladatok: '+
+      inspected.batchReport.verifiedBatchCount+
+      '\nBatch naplósor: '+inspected.batchReport.status:'')+
      '\nAutomatikus folytatás: TILTVA.'+
      (sent?'\nAz aktív Monday TEST megkapta az információt.':
       '\nKorábbi, bezárt Monday-ablakhoz nincs automatikus újracsatlakozás.');
