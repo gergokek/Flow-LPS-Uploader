@@ -6,3 +6,5 @@ Do not merge branches or replace production root code.
 Retry isolated TEST preview with dedicated environment mflow-test-preview. Root content remains derived only from main.
 
 Release attempt 3: wait for Actions artifact availability before Pages deploy.
+
+2026-11-25 TEST hotfix: Graph fail-on-existing PUT small-file path with independent SHA256/eTag readback; fail closed on 403/409/500.
