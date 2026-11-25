@@ -1,3 +1,4 @@
+import {beginV1FullSyncWithConsent} from './full-sync-consent-ui.js';
 import {createSessionDraftAutosave} from './draft-session-autosave.js';
 import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
 import {createImmutableDraftQueue} from './single-draft-write-queue.js';
@@ -307,15 +308,18 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
    return full.inspect(args);
   }
   if(action==='begin'){
-   const report=await full.inspect(args);
-   if(!window.confirm('TELJES V1 VISSZAIRAS - Monday TEST board 5107075373.\n'+
-    report.remainingTaskCount+' hatralevo feladat, automatikus naplozassal es visszaellenorzessel.\n'+
-    'Az igazolt feladatokat kihagyjuk. Nincs tovabbi tizesenkenti megerosites.\n'+
-    'Mindket ablak maradjon nyitva. Hiba eseten megallas, nincs automatikus ujrairas.\nInditod?'))
-    throw Error('A teljes szinkron inditasat megszakitottad. Nem tortent iras.');
-   const result=await full.begin({...args,userConfirmed:true});
-   approvedV1SyncOutput.textContent='Teljes V1 szinkron engedelyezve. Hatravan: '+result.remainingTaskCount+
-    ' feladat. Automatikus naplozas; az ablak maradjon nyitva.';return result;
+   const selected=singleSyncSelected,store=singleSyncStore,opener=window.opener;
+   const isCurrent=()=>singleSyncSelected===selected&&singleSyncStore===store&&
+    projectBoard.value.trim()==='5107075373'&&
+    msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+    msal.getAllAccounts()[0]?.tenantId===account.tenantId&&
+    singleBridge.active&&singleBridge.ready()&&
+    singleBridge.syncSession()?.sha256===request.expectedApprovedSha256&&
+    singleBridge.syncSession()?.sessionId===request.expectedSessionId&&
+    singleBridge.syncSession()?.revision===request.expectedRevision&&
+    !!opener&&window.opener===opener&&!opener.closed;
+   return beginV1FullSyncWithConsent({full,args,
+    host:approvedV1SyncOutput.parentElement,output:approvedV1SyncOutput,isCurrent});
   }
   if(action==='ahead'){
    approvedV1SyncOutput.textContent='V1 szinkron: '+payload.step+'. feladat elonaploja es ellenorzese...';
