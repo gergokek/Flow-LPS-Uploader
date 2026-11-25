@@ -2,3 +2,5 @@ TEST preview release: 2026-11-25
 Scope: isolated Uploader /Flow-LPS-Uploader/test/ plus unchanged main production root
 Features: one active V1 session; immutable V1.X snapshots; old tools collapsed
 Do not merge branches or replace production root code.
+
+Retry isolated TEST preview with dedicated environment mflow-test-preview. Root content remains derived only from main.
