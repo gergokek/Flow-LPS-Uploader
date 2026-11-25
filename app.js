@@ -79,7 +79,7 @@ button.addEventListener('click',async()=>{
  button.disabled=true;
  status.textContent='Microsoft-bejelentkezési ablak megnyitása...';
  try{
-  const response=await msal.loginPopup({scopes:['openid','profile'],redirectUri,prompt:'select_account',overrideInteractionInProgress:retryPendingInteraction});
+  const response=await msal.loginPopup({scopes:testUi?['openid','profile','User.Read']:['openid','profile'],redirectUri,prompt:'select_account',overrideInteractionInProgress:retryPendingInteraction});
   retryPendingInteraction=false;
   button.textContent='Bejelentkezés Microsoft-fiókkal';
   showAccount(response.account);
@@ -219,6 +219,19 @@ const pickerToken=async()=>{
   return (await msal.acquireTokenPopup(request)).accessToken;
  }
 };
+// Read-only Entra /me proof requires the standard delegated User.Read scope.
+// TEST MSAL login requests it on a direct user click, before any approval.
+const pickerMeToken=async()=>{
+ const account=msal.getAllAccounts()[0];
+ if(!account)throw Error('Microsoft bejelentkezes szukseges.');
+ const request={scopes:['User.Read'],account,redirectUri};
+ try{return (await msal.acquireTokenSilent(request)).accessToken;}
+ catch(e){
+  if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))
+   throw e;
+  return (await msal.acquireTokenPopup(request)).accessToken;
+ }
+};
 // New, isolated one-session workflow. No legacy autosave coalescing and no
 // direct Monday writes. Existing legacy tests remain available separately.
 let singleSession=null,singleSessionQueue=null,singleStore=null,singleBusy=false;
@@ -266,7 +279,7 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
 function singleStoreFor(account,boardId){
  const originalId=account.homeAccountId,tenant=account.tenantId;
  return createSingleDraftSessionStore({boardId,driveId,
-  getAccessToken:pickerToken,
+  getAccessToken:pickerToken,getMeAccessToken:pickerMeToken,
   assertCurrent:()=>projectBoard.value.trim()===boardId&&
    msal.getAllAccounts()[0]?.homeAccountId===originalId&&
    msal.getAllAccounts()[0]?.tenantId===tenant});
