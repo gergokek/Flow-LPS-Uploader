@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
-import {fingerprint,stable} from './single-draft-session-core.js';
+import {fingerprint,stable,sha256} from './single-draft-session-core.js';
 
 const boardId='5107075373',driveId='b!testdrive',
  sessionId='11111111-1111-4111-8111-111111111111';
@@ -45,6 +45,10 @@ function fakeGraph({writeStatus=null}={}){
    if(!found)return new Response('',{status:404});
    return new Response(found.content,{status:200});
   }
+  if(url==='https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName'&&
+     method==='GET')
+   return response({id:'22222222-2222-4222-8222-222222222222',
+    userPrincipalName:'test-approver@example.org'});
   if(!url.startsWith(root))throw Error('Unknown Graph origin '+url);
   const path=decodeURIComponent(uri.pathname.slice(new URL(root).pathname.length));
   if(path.startsWith('/root:/')){
@@ -221,4 +225,73 @@ test('an actually changed base field still blocks V1.2, regardless of key orderi
   expectedSessionId:sessionId,expectedParentSha256:saved.receipt.sha256}),
   /kiinduló állapotát/);
  assert.equal(g.counters.uploads,3);
+});
+
+test('V1.1 review is read-only; Approve creates immutable Approved Plan V1 with verified receipt',async()=>{
+ const g=fakeGraph(),v1=await g.store.start({createdBy:'entra-user'});
+ const edit=structuredClone(v1.draft);edit.version=1;
+ edit.history.push({revision:1,type:'edit',at:'2026-11-25T09:30:00.000Z'});
+ edit.working[0].note='approved change';
+ const saved=await g.store.append({updatedDraft:JSON.parse(stable(edit)),
+  expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
+ const args={expectedSessionId:sessionId,expectedRevision:1,
+  expectedSha256:saved.receipt.sha256,createdBy:'entra-user',editorId:'96423073'};
+ const before=g.counters.uploads;
+ const review=await g.store.reviewApproval(args);
+ assert.equal(review.status,'V1_APPROVAL_REVIEWED');
+ assert.equal(review.changedTaskCount,1);
+ assert.equal(g.counters.uploads,before);
+ const approval=await g.store.approve({...args,
+  boardVerifiedAt:new Date().toISOString(),
+  boardFingerprintSha256:await sha256(
+   new TextEncoder().encode(fingerprint(g.v0.plan.base)))});
+ assert.equal(approval.status,'APPROVED_PLAN_V1_STORED');
+ assert.equal(approval.mondayWrites,0);
+ assert.equal(approval.mondaySyncAllowed,false);
+ assert.equal(approval.revision,1);
+ assert.equal(approval.approvedPlan.name,'approved-v1.json');
+ assert.equal(approval.approvedPlan.verification,'content-sha256-and-etag');
+ assert.ok(g.files.has('Draft-Plans/session-v1-freeze.json'));
+ assert.ok(g.files.has('Draft-Plans/session-v1-approved.json'));
+ assert.ok(g.files.has('Approved-Plans/approved-v1.json'));
+ const plan=JSON.parse(new TextDecoder().decode(
+  g.files.get('Approved-Plans/approved-v1.json').content));
+ assert.equal(plan.plan.working[0].note,'approved change');
+ assert.equal(plan.planVersion,1);
+ assert.equal(plan.draftVersion,1);
+ assert.equal(plan.sourceDraft.sha256,saved.receipt.sha256);
+ assert.equal(plan.finalization.microsoftEntraObjectId,
+  '22222222-2222-4222-8222-222222222222');
+ assert.equal(plan.mondaySyncAllowed,false);
+ assert.equal(g.counters.uploads,before+3);
+ await assert.rejects(g.store.resume(),/zárolva/);
+ await assert.rejects(g.store.append({updatedDraft:edit,
+  expectedSessionId:sessionId,expectedParentSha256:saved.receipt.sha256}),
+  /zárolva/);
+ await assert.rejects(g.store.approve({...args,
+  boardVerifiedAt:new Date().toISOString(),
+  boardFingerprintSha256:await sha256(
+   new TextEncoder().encode(fingerprint(g.v0.plan.base)))}),/zárolva/);
+ assert.equal(g.counters.uploads,before+3);
+});
+test('approval rejects old board proof, stale revision, changed identity with no freeze',async()=>{
+ const g=fakeGraph(),v1=await g.store.start({createdBy:'entra-user'});
+ const edit=structuredClone(v1.draft);edit.version=1;
+ edit.history.push({revision:1,type:'edit',at:'2026-11-25T09:31:00.000Z'});
+ edit.working[0].note='changed';
+ const saved=await g.store.append({updatedDraft:edit,
+  expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
+ const args={expectedSessionId:sessionId,expectedRevision:1,
+  expectedSha256:saved.receipt.sha256,createdBy:'entra-user',editorId:'96423073',
+  boardVerifiedAt:new Date().toISOString(),
+  boardFingerprintSha256:await sha256(new TextEncoder().encode(
+   fingerprint(g.v0.plan.base)))};
+ await assert.rejects(g.store.approve({...args,
+  boardVerifiedAt:'2026-01-01T00:00:00.000Z'}),/friss/);
+ await assert.rejects(g.store.approve({...args,
+  expectedRevision:2}),/megváltozott/);
+ await assert.rejects(g.store.approve({...args,
+  createdBy:'another-user'}),/eltér/);
+ assert.equal(g.files.has('Draft-Plans/session-v1-freeze.json'),false);
+ assert.equal(g.files.has('Approved-Plans/approved-v1.json'),false);
 });
