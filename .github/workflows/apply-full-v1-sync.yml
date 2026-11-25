@@ -1,0 +1,43 @@
+name: Apply verified full V1 sync wiring
+on:
+  push:
+    branches: [feat/test-single-draft-session]
+    paths: [.github/workflows/apply-full-v1-sync.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/feat/test-single-draft-session'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/test-single-draft-session
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact patch and tracked baseline
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor c5f3d1460d7490a9560d0ec6fa1db4bdcbcf81ee HEAD
+          base64 --decode .github/full-v1-sync.patch.gz.b64 > /tmp/full-sync.patch.gz
+          echo '4a2a902177c40f8e136f20ed753ccb8048cf7f320dc6d7f73673c50bb1f6192d  /tmp/full-sync.patch.gz' | sha256sum -c -
+          gzip -dc /tmp/full-sync.patch.gz > /tmp/full-sync.patch
+          git apply --index --check --unidiff-zero /tmp/full-sync.patch
+          git apply --index --unidiff-zero /tmp/full-sync.patch
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - name: Build isolated TEST bundle
+        run: VITE_MFLOW_TEST_PREVIEW=1 npm run build -- --base=/Flow-LPS-Uploader/test/
+      - name: Commit verified TEST source only
+        run: |
+          test "$(git ls-remote origin refs/heads/feat/test-single-draft-session | cut -f1)" = "$GITHUB_SHA"
+          git diff --cached --check
+          git diff --cached --name-only
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(test): integrate full V1 synchronization journals and closure'
+          git push origin HEAD:refs/heads/feat/test-single-draft-session
+          git rev-parse HEAD
