@@ -8,7 +8,7 @@ Microsoft Entra login → aktuális Monday-projekt `5107075373` → V0-ból V1 m
 
 A tároló `Draft-Plans/active-session.json` változtathatatlan, konfliktusvédett foglalással kizárja a második aktív munkamenet indítását. A V1 alap: `draft-v1.json`. Minden elfogadott módosítás **külön** `draft-v1-r000001.json`, `draft-v1-r000002.json` stb. fájl, saját teljes `working` állapottal, `history` előzménnyel, `sessionId`-vel, `approvedV0Sha256` és `parentSha256` lánccal.
 
-Új fájl írása: Graph createUploadSession + `conflictBehavior=fail`, pontosan egyszer; teljes Graph tartalom letöltés, SHA-256/eTag és stabil metadata-visszaolvasás. Hiba / timeout / versengő másik szerkesztés esetén stop; nincs automatikus retry. Recovery a foglalást és a V0-t, minden V1.X fájlt és az összes parent hash kapcsolódást visszaellenőrzi. Sérült/hézagos lánc nem folytatható automatikusan.
+Új fájl írása: Graph kisfájlos `PUT ...:/content?%40microsoft.graph.conflictBehavior=fail` (5 MB-os korlát, csak HTTP 201 elfogadott), pontosan egyszer; teljes Graph tartalom letöltés, SHA-256/eTag és stabil metadata-visszaolvasás. Hiba / timeout / versengő másik szerkesztés esetén stop; nincs automatikus retry. Recovery a foglalást és a V0-t, minden V1.X fájlt és az összes parent hash kapcsolódást visszaellenőrzi. Sérült/hézagos lánc nem folytatható automatikusan.
 
 `single-draft-session-bridge.js` a kiválasztott, ellenőrzött DRAFT-ot új, origin/nonce-bound protokollon átadja a Monday TEST-nek; a következő revíziók státuszát és nyugtáját ugyanazon munkamenethez köti. `single-draft-write-queue.js` minden elfogadott revíziót külön, sorrendben ír, nem hagy ki köztes állapotot.
 
@@ -21,3 +21,9 @@ A tároló `Draft-Plans/active-session.json` változtathatatlan, konfliktusvéde
 - `.github/workflows/verify-single-draft-session.yml` – csak `npm test` és `npm run build`, nincs Pages deployment.
 
 **NINCS még:** Approved Plan V1-re másolás és takarítás, single-Approve automatikus Monday-sync, V2 indítása. A lock nem jár le magától, nem törlődik automatikusan. A teljes bejelentkezett Monday/Graph TEST integrációt még külön kell ellenőrizni.
+
+## 2026-11-25 – SharePoint V1 indítás javítása
+
+A felhasználói TEST-ben a manuálisan feltöltött `approved-v0.json` tartalma teljes és megfelelő (193 feladat). A V1 létrehozás a korábbi Graph upload-session előkészítő POST kérésénél megállt; utána a SharePointon sem `active-session.json`, sem `draft-v1.json` nem létezett. A kis méretű, konfliktusvédett Graph fájllétrehozásra váltottunk. Felülírás tiltott, minden fájlt teljes SHA-256/eTag visszaolvasás igazol, hibás/403/500 válasz esetén nincs automatikus retry. A SharePoint/Entra tényleges jogosultságát a bejelentkezett felhasználói próba igazolja majd.
+
+A TEST preview telepítése: [GitHub Actions #45583434323](https://github.com/gergokek/Flow-LPS-Uploader/actions/runs/45583434323), sikeres. A publikus root továbbra is a változatlan `main` build; a javítás kizárólag `/Flow-LPS-Uploader/test/` alatt érhető el.
