@@ -1,5 +1,5 @@
 import {ACTIVE_NAME,BASELINE_NAME,V0_NAME,MAX_DRAFT_BYTES,
- sha256,hex,inspectV0,newSessionClaim,makeBaseline,inspectRevision,
+ sha256,hex,stable,inspectV0,newSessionClaim,makeBaseline,inspectRevision,
  makeNextDraft,revisionName} from './single-draft-session-core.js';
 
 const safeDomains=['.sharepoint.com','.sharepointonline.com','.sharepoint-df.com',
@@ -214,7 +214,7 @@ export function createSingleDraftSessionStore({boardId,driveId,
   requireValid(!!file,'Az aktív munkamenet V1 kiinduló fájlja hiányzik.');
   const original=makeBaseline({v0:v0.value,claim:current.value});
   requireValid(file.value.source===original.source&&
-   JSON.stringify(file.value.working)===JSON.stringify(original.working),
+   stable(file.value.working)===stable(original.working),
    'A V1 kiinduló DRAFT eltér az eredeti V0-tól.');
   inspectRevision(file.value,current.value,0,null);
   let last=file,lastRevision=0;
@@ -223,7 +223,7 @@ export function createSingleDraftSessionStore({boardId,driveId,
    requireValid(!!next,'A DRAFT-listában szereplő revízió eltűnt.');
    inspectRevision(next.value,current.value,rev,last.sha256);
    requireValid(next.value.source===original.source&&
-    JSON.stringify(next.value.base)===JSON.stringify(original.base),
+    stable(next.value.base)===stable(original.base),
     'A DRAFT módosította a V0 kiinduló adatokat.');
    last=next;lastRevision=rev;
   }
