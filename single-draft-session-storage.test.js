@@ -297,3 +297,80 @@ test('approval rejects old board proof, stale revision, changed identity with no
  assert.equal(g.files.has('Draft-Plans/session-v1-freeze.json'),false);
  assert.equal(g.files.has('Approved-Plans/approved-v1.json'),false);
 });
+
+test('frozen V1.1 supports independent Approved V1 sync inspection and a single zero-write checkpoint',async()=>{
+ const home='22222222-2222-4222-8222-222222222222.816099a1-2aff-441c-b4ef-9c3a405ac2fa';
+ const g=fakeGraph(),v1=await g.store.start({createdBy:home});
+ const edited=structuredClone(v1.draft);edited.version=1;
+ edited.history.push({revision:1,type:'edit',at:new Date().toISOString()});
+ edited.working[0].note='changed for sync';
+ const saved=await g.store.append({updatedDraft:edited,
+  expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
+ const boardFingerprintSha256=await sha256(new TextEncoder().encode(
+  fingerprint(g.v0.plan.base)));
+ const approved=await g.store.approve({expectedSessionId:sessionId,
+  expectedRevision:1,expectedSha256:saved.receipt.sha256,
+  createdBy:home,editorId:'96423073',
+  boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256});
+ await assert.rejects(g.store.resume(),/zárolva/);
+ const countBefore=g.counters.uploads;
+ const inspected=await g.store.inspectApprovedSync({createdBy:home});
+ assert.equal(g.counters.uploads,countBefore);
+ assert.equal(inspected.status,'APPROVED_V1_VERIFIED');
+ assert.equal(inspected.sourceDraftSha256,saved.receipt.sha256);
+ assert.equal(inspected.receipt.sha256,approved.approvedPlan.sha256);
+ assert.equal(inspected.approvedPlan.plan.working[0].note,'changed for sync');
+ await assert.rejects(g.store.inspectApprovedSync({
+  createdBy:'33333333-3333-4333-8333-333333333333.816099a1-2aff-441c-b4ef-9c3a405ac2fa'}),/felhasználó/);
+ assert.equal(g.counters.uploads,countBefore);
+ const receipt=await g.store.prepareApprovedSync({
+  expectedApprovedSha256:inspected.receipt.sha256,
+  createdBy:home,editorId:'96423073',
+  boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256});
+ assert.equal(receipt.status,'PREPARED_NO_WRITES');
+ assert.equal(receipt.mondayWrites,0);
+ assert.equal(receipt.mutationAttempts,0);
+ assert.equal(receipt.writeAuthorization,'NOT_GRANTED');
+ assert.equal(receipt.checkpoint.name,'sync-v1-prepared.json');
+ assert.equal(receipt.checkpoint.verification,'content-sha256-and-etag');
+ assert.equal(g.counters.uploads,countBefore+1);
+ const value=JSON.parse(new TextDecoder().decode(
+  g.files.get('Sync-Status/sync-v1-prepared.json').content));
+ assert.equal(value.status,'PREPARED_NO_WRITES');
+ assert.equal(value.mondayWrites,0);
+ assert.equal(value.writeAuthorization,'NOT_GRANTED');
+ assert.equal(value.approvedSha256,approved.approvedPlan.sha256);
+ await assert.rejects(g.store.prepareApprovedSync({
+  expectedApprovedSha256:inspected.receipt.sha256,
+  createdBy:home,editorId:'96423073',
+  boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256}),
+  /Már létezik/);
+ assert.equal(g.counters.uploads,countBefore+1);
+});
+test('Approved V1 sync checkpoint rejects stale board source before Graph write',async()=>{
+ const home='22222222-2222-4222-8222-222222222222.816099a1-2aff-441c-b4ef-9c3a405ac2fa';
+ const g=fakeGraph(),v1=await g.store.start({createdBy:home});
+ const edited=structuredClone(v1.draft);edited.version=1;
+ edited.history.push({revision:1,type:'edit',at:new Date().toISOString()});
+ edited.working[0].note='changed';
+ const saved=await g.store.append({updatedDraft:edited,
+  expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
+ const correct=await sha256(new TextEncoder().encode(fingerprint(g.v0.plan.base)));
+ await g.store.approve({expectedSessionId:sessionId,expectedRevision:1,
+  expectedSha256:saved.receipt.sha256,createdBy:home,editorId:'96423073',
+  boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256:correct});
+ const v=await g.store.inspectApprovedSync({createdBy:home});
+ const before=g.counters.uploads;
+ await assert.rejects(g.store.prepareApprovedSync({
+  expectedApprovedSha256:v.receipt.sha256,
+  createdBy:home,editorId:'96423073',
+  boardVerifiedAt:new Date().toISOString(),
+  boardFingerprintSha256:'f'.repeat(64)}),/V0 forrás/);
+ await assert.rejects(g.store.prepareApprovedSync({
+  expectedApprovedSha256:'f'.repeat(64),
+  createdBy:home,editorId:'96423073',
+  boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256:correct}),
+  /időközben/);
+ assert.equal(g.counters.uploads,before);
+ assert.equal(g.files.has('Sync-Status/sync-v1-prepared.json'),false);
+});
