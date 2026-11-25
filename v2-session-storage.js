@@ -68,6 +68,7 @@ export function createV2SessionStore({inspectCompleted,readDraft,listDraft,creat
   try{
    await checkPinned(cached.evidence,cached.oldClaim,args.createdBy);
    const report=await scan(),model=cached.model;
+   ok(!await readDraft('session-v2-freeze.json'),'A V2 mar jovahagyasra zarolt. A 7. V2 ellenorzes/szinkron gombbal folytasd.');
    requireV2Board(args,model,now().getTime());
    ok(args.generationSha256===report.generationSha256,'A V2 revizio megvaltozott.');
    if(report.status==='V2_ACTIVE')return report; // Verified resume, zero creates.
@@ -98,17 +99,21 @@ export function createV2SessionStore({inspectCompleted,readDraft,listDraft,creat
  async function append({updatedDraft,expectedSessionId,expectedParentSha256}={}){
   check();ok(cached&&!blocked,'A V2 menteshez uj visszaellenorzes szukseges.');
   try{
+   ok(!await readDraft('session-v2-freeze.json'),'A V2 jovahagyasra zarolt; DRAFT-mentes tiltva.');
    await checkPinned(cached.evidence,cached.oldClaim,cached.createdBy);
    const report=await scan();ok(report.status==='V2_ACTIVE','A V2 meg nem szerkesztheto.');
    const last=report.revisions.at(-1)||report.baseline;
    ok(report.claim.document.sessionId===expectedSessionId&&last.receipt.sha256===expectedParentSha256,
     'Masik V2 modositas tortent; a mentes nem irhat felul korabbi verziot.');
    const draft=makeNextV2Draft(last.document,updatedDraft,cached.model,report.claim.document,expectedParentSha256);
+   ok(!await readDraft('session-v2-freeze.json'),'A V2 kozben jovahagyasra zarult.');
    const receipt=await createDraft(v2RevisionName(draft.version),draft);
+   ok(!await readDraft('session-v2-freeze.json'),'Parhuzamos V2 jovahagyas tortent; a mentest ellenorizni kell.');
    ok(receipt.sha256===await pilotFileSha(draft),'A V2 mentes ellenorzoosszege elter.');check();
    return {status:'SAVED',boardId:'5107075373',planVersion:2,sessionId:expectedSessionId,
     revision:draft.version,versionLabel:'V2.'+draft.version,draft,receipt,mondayWrites:0};
   }catch(error){blocked=true;throw error;}
  }
- return Object.freeze({inspect,begin,open,append});
+ async function refresh(args={}){identity(args);await checkPinned(cached.evidence,cached.oldClaim,args.createdBy);return scan();}
+ return Object.freeze({inspect,refresh,begin,open,append});
 }

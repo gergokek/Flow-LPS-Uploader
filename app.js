@@ -1,3 +1,5 @@
+import {requestV2FlowConsent} from './v2-approval-sync-consent.js';
+import {inspectV2Cycle} from './v2-approval-sync-contract.js';
 import {requestV2SessionConsent} from './v2-session-consent-ui.js';
 import {beginV1FullSyncWithConsent} from './full-sync-consent-ui.js';
 import {createSessionDraftAutosave} from './draft-session-autosave.js';
@@ -301,6 +303,39 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
     request.expectedRevision!==singleSyncSelected.revision)
   throw Error('V1 pilot: nincs ellenorzott Approved V1 kapcsolat.');
  const payload=request.payload||{},createdBy=account.homeAccountId;
+ if(request.action.startsWith('v2-flow-')){
+  const flow=singleSyncStore.v2Flow,action=request.action.slice(8),args={...payload,createdBy,requestId:request.requestId};
+  const selected=singleSyncSelected,store=singleSyncStore,opener=window.opener;
+  const isCurrent=()=>singleSyncSelected===selected&&singleSyncStore===store&&
+   projectBoard.value.trim()==='5107075373'&&msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId&&singleBridge.active&&singleBridge.ready()&&
+   singleBridge.syncSession()?.sha256===request.expectedApprovedSha256&&
+   singleBridge.syncSession()?.sessionId===request.expectedSessionId&&
+   singleBridge.syncSession()?.revision===request.expectedRevision&&!!opener&&window.opener===opener&&!opener.closed;
+  if(!isCurrent())throw Error('A V2 kapcsolat megvaltozott.');
+  if(action==='inspect'){
+   approvedV1SyncOutput.textContent='V2 DRAFT, jovahagyas es naplok visszaellenorzese. Csak olvasas.';
+   const report=await flow.inspect(args),state=await inspectV2Cycle(report,args.editorId,createdBy);
+   approvedV1SyncOutput.textContent='V2 ellenorzes: '+state.status+'. Modosult: '+state.model.changedTaskCount+
+    ', igazolt: '+state.verifiedTaskCount+', hatralevo: '+state.remainingTaskCount+'.';return report;
+  }
+  if(action==='begin'){
+   const report=await flow.inspect(args),state=await inspectV2Cycle(report,args.editorId,createdBy);
+   if(state.generationSha256!==args.generationSha256||!isCurrent())throw Error('A V2 elonezet megvaltozott.');
+   approvedV1SyncOutput.textContent='V2 jovahagyas es teljes visszairas a lenti gombra var. Meg nem indult uj iras.';
+   if(!await requestV2FlowConsent({host:approvedV1SyncOutput.parentElement,state,isCurrent})||!isCurrent())
+    throw Error('A V2 jovahagyas megszakitva. Ebben a futasban nem indult iras.');
+   return flow.begin({...args,userConfirmed:true});
+  }
+  if(!['approve','ahead','result','finish'].includes(action))throw Error('Ismeretlen V2 szinkronmuvelet.');
+  const result=await flow[action](args);
+  approvedV1SyncOutput.textContent=action==='finish'?'TELJES V2 SZINKRON LEZARVA. '+
+   result.document.verifiedTaskCount+' modosult feladat igazolva. Zaronyugta: '+result.receipt.name+'. V3 nem indult.':
+   action==='approve'?'Approved V2 mentve es visszaellenorizve. A V2 DRAFT zarolt; a teljes szinkron folytatodik.':
+   action==='ahead'?'V2 elonaplo igazolva. Feladat: '+result.document.taskId:
+   'V2 eredmenynaplo igazolva: '+result.document.status;
+  return result;
+ }
  if(request.action.startsWith('v2-')){
   const next=singleSyncStore.nextSession,action=request.action.slice(3);
   const args={...payload,createdBy,requestId:request.requestId};

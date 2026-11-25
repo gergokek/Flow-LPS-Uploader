@@ -412,7 +412,7 @@ test('V1 pilot uses real store readback chain and immutable journal create paths
 });
 
 
-test('real Graph adapter: completed V1 creates only closure/claim/V2 baseline; edit and resume preserve V1',async()=>{
+test('real Graph adapter: V2 start edit resume approval full journal closure preserves V1',async()=>{
  const {pilotSha,pilotStable,pilotTask,pilotTarget}=await import('./v1-pilot-contract.js');
  const {inspectFullSyncEvidence}=await import('./v1-full-sync-contract.js');
  const createdBy='22222222-2222-4222-8222-222222222222.816099a1-2aff-441c-b4ef-9c3a405ac2fa',editorId='96423073';
@@ -461,4 +461,33 @@ test('real Graph adapter: completed V1 creates only closure/claim/V2 baseline; e
  assert.equal(g.counters.uploads,writes+4);
  for(const [path,content] of oldContents)assert.equal(new TextDecoder().decode(g.files.get(path).content),content,path);
  await assert.rejects(g.store.resume(),/z.arolva|zárolva/);
+ const {inspectV2Cycle,v2SyncCommon,V2_FINAL}=await import('./v2-approval-sync-contract.js');
+ const flow=g.store.v2Flow;let cycle=await flow.inspect({editorId,createdBy});
+ let cs=await inspectV2Cycle(cycle,editorId,createdBy);
+ const executionId=crypto.randomUUID();
+ const proof=()=>({editorId,createdBy,executionId,expectedV2SessionId:cs.model.sessionId,
+  expectedV2Revision:cs.model.revision,expectedDraftSha256:cs.model.sourceDraftSha256,
+  generationSha256:cs.generationSha256,boardFingerprintSha256:cs.expectedBoardSha256,
+  boardVerifiedAt:new Date().toISOString()});
+ assert.equal(cs.status,'DRAFT_READY');assert.equal(cs.remainingTaskCount,1);
+ await flow.begin({...proof(),userConfirmed:true});assert.equal(g.counters.uploads,writes+4);
+ cycle=await flow.approve(proof());cs=await inspectV2Cycle(cycle,editorId,createdBy);
+ assert.equal(cs.status,'READY_TO_SYNC');assert.equal(g.counters.uploads,writes+7);
+ const target=cs.next,requestId=crypto.randomUUID();
+ const newAhead=await flow.ahead({...proof(),requestId,step:target.step,taskId:target.taskId,mutationValuesSha256:'b'.repeat(64)});
+ const newResult={...v2SyncCommon(cs.model,cycle),format:'mflow-v2-sync-result',status:'ITEM_READBACK_VERIFIED',
+  step:target.step,taskId:target.taskId,executionId,requestId,writeAheadSha256:newAhead.receipt.sha256,
+  mutationValuesSha256:'b'.repeat(64),mutationAttempts:1,replyConfirmed:true,itemReadbackMatches:true,
+  fullBoardReadbackMatches:true,itemReadbackSha256:target.expectedItemSha256,
+  boardReadbackSha256:target.expectedBoardSha256,error:null,checkedAt:new Date().toISOString(),automaticallyRetryable:false};
+ await flow.result({createdBy,editorId,executionId,result:newResult});
+ cycle=await flow.inspect({createdBy,editorId});cs=await inspectV2Cycle(cycle,editorId,createdBy);
+ assert.equal(cs.status,'READY_TO_CLOSE');const final=await flow.finish(proof());assert.equal(final.receipt.name,V2_FINAL);
+ assert.equal(g.counters.uploads,writes+10);
+ const reopenedCycle=await flow.inspect({createdBy,editorId});
+ assert.equal((await inspectV2Cycle(reopenedCycle,editorId,createdBy)).status,'V2_SYNC_COMPLETED');
+ assert.equal(g.counters.uploads,writes+10);
+ await assert.rejects(next.open({...v2args,generationSha256:resumed.generationSha256,boardVerifiedAt:new Date().toISOString()}),/zarolt/);
+ await assert.rejects(next.append({updatedDraft:draft}),/zarolt|uj visszaellenorzes/);
+ for(const [path,content] of oldContents)assert.equal(new TextDecoder().decode(g.files.get(path).content),content,path);
 });

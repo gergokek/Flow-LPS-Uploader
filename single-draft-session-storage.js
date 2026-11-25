@@ -1,3 +1,4 @@
+import {createV2ApprovalSyncStore} from './v2-approval-sync-storage.js';
 import {createV2SessionStore} from './v2-session-storage.js';
 import {createV1FullSyncStore} from './single-v1-full-sync-storage.js';
 import {createV1PilotStore} from './single-v1-pilot-storage.js';
@@ -446,7 +447,7 @@ export function createSingleDraftSessionStore({boardId,driveId,
   }
  });
 
- async function listFullSyncFiles(){
+ async function listFullSyncFiles(prefix='sync-v1-step-'){
   const parent=await folderMeta('Sync-Status'),out=[],seen=new Set(),names=new Set();
   let next=root+'/items/'+encodeURIComponent(parent.id)+'/children?$select=id,name,file,size,eTag&$top=200';
   for(let page=0;next&&page<50;page++){
@@ -455,7 +456,7 @@ export function createSingleDraftSessionStore({boardId,driveId,
    requireValid(response.ok,'Sync-Status list HTTP '+response.status);
    const data=await response.json();requireValid(Array.isArray(data.value),'Invalid Sync-Status list.');
    for(const item of data.value){
-    if(!item.name?.startsWith('sync-v1-step-'))continue;
+    if(!item.name?.startsWith(prefix))continue;
     requireValid(item.file&&item.id&&item.eTag&&!names.has(item.name),'Invalid/duplicate V1 journal.');
     names.add(item.name);out.push(item);
    }
@@ -503,8 +504,28 @@ export function createSingleDraftSessionStore({boardId,driveId,
     requireValid(current?.id===receipt.id&&current.eTag===receipt.eTag,'V1 closure source changed.');
    }check();
   }});
+ const v2Flow=createV2ApprovalSyncStore({
+  inspectSession:args=>nextSession.inspect(args),refreshSession:args=>nextSession.refresh(args),
+  read:(folderName,name)=>readFile(urlOf([...folder(folderName),name])),
+  listSync:()=>listFullSyncFiles('sync-v2-'),create:(folderName,name,value)=>{
+   const allowed=(folderName==='Draft-Plans'&&['session-v2-freeze.json','session-v2-approved.json'].includes(name))||
+    (folderName==='Approved-Plans'&&name==='approved-v2.json')||
+    (folderName==='Sync-Status'&&(name==='sync-v2-completed.json'||/^sync-v2-step-\d{6}-(ahead|result)\.json$/.test(name)));
+   requireValid(allowed,'Tiltott V2 fajlcel.');return createFile(folderName,name,value);
+  },check,now,checkPinned:async(report,createdBy)=>{
+   await verifyPinnedV1(report.session.evidence,createdBy);
+   const pairs=[report.session.oldClaim,report.session.closure,report.session.claim,report.session.baseline,
+    ...report.session.revisions,report.session.evidence.final,report.freeze,report.approved,report.approval,
+    ...report.records.flatMap(r=>[r.ahead,r.result]),report.final].filter(Boolean);
+   // Metadata pins are sufficient between independent full-content scans.
+   for(let i=0;i<pairs.length;i+=4)await Promise.all(pairs.slice(i,i+4).map(async pair=>{
+    const r=pair.receipt,folderName=r.path.split('/')[2];
+    const current=await metadata(urlOf([...folder(folderName),r.name]));
+    requireValid(current?.id===r.id&&current.eTag===r.eTag,'A V2 kapcsolt bizonyitek megvaltozott.');
+   }));check();
+  }});
  return Object.freeze({start,resume,append,readV0,reviewApproval,approve,
   inspectApprovedSync,prepareApprovedSync,
   inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
-  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession});
+  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow});
 }
