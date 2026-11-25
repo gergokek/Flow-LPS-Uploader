@@ -1,3 +1,4 @@
+import {createV1PilotStore} from './single-v1-pilot-storage.js';
 import {ACTIVE_NAME,BASELINE_NAME,V0_NAME,MAX_DRAFT_BYTES,
  sha256,hex,stable,inspectV0,newSessionClaim,makeBaseline,inspectRevision,
  makeNextDraft,revisionName} from './single-draft-session-core.js';
@@ -427,6 +428,22 @@ export function createSingleDraftSessionStore({boardId,driveId,
    mondayWrites:0,mutationAttempts:0,writeAuthorization:'NOT_GRANTED'
   });
  }
+ const pilot=createV1PilotStore({
+  readApproved:inspectApprovedSync,
+  readSync:name=>readFile(urlOf([...folder('Sync-Status'),name])),
+  createSync:(name,value)=>createFile('Sync-Status',name,value),check,now,
+  identify:async()=>{
+   check();const token=await getMeAccessToken();
+   requireValid(typeof token==='string'&&!!token,'Graph User.Read token required.');
+   const response=await fetcher('https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName',{
+    method:'GET',cache:'no-store',redirect:'error',
+    headers:{Authorization:'Bearer '+token,Accept:'application/json'}});
+   requireValid(response.ok,'V1 pilot Graph /me HTTP '+response.status);
+   const me=await response.json();check();return me;
+  }
+ });
  return Object.freeze({start,resume,append,readV0,reviewApproval,approve,
-  inspectApprovedSync,prepareApprovedSync});
+  inspectApprovedSync,prepareApprovedSync,
+  inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
+  saveV1PilotResult:pilot.saveResult});
 }

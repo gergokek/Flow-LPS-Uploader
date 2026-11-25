@@ -374,3 +374,37 @@ test('Approved V1 sync checkpoint rejects stale board source before Graph write'
  assert.equal(g.counters.uploads,before);
  assert.equal(g.files.has('Sync-Status/sync-v1-prepared.json'),false);
 });
+
+test('V1 pilot uses real store readback chain and immutable journal create paths',async()=>{
+ const {pilotSha,pilotStable,pilotTask,pilotTarget}=await import('./single-v1-pilot-contract.js');
+ const createdBy='22222222-2222-4222-8222-222222222222.816099a1-2aff-441c-b4ef-9c3a405ac2fa',editorId='96423073';
+ const g=fakeGraph(),v1=await g.store.start({createdBy});
+ const edit=structuredClone(v1.draft);edit.version=1;
+ edit.history.push({revision:1,type:'edit',at:new Date().toISOString()});edit.working[0].note='Pilot change';
+ const saved=await g.store.append({updatedDraft:edit,expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
+ const boardFingerprintSha256=await pilotSha(fingerprint(g.v0.plan.base));
+ const approved=await g.store.approve({expectedSessionId:sessionId,expectedRevision:1,
+  expectedSha256:saved.receipt.sha256,createdBy,editorId,boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256});
+ await g.store.prepareApprovedSync({expectedApprovedSha256:approved.approvedPlan.sha256,
+  createdBy,editorId,boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256});
+ const uploadCount=g.counters.uploads;
+ const initial=await g.store.inspectV1Pilot({createdBy,editorId});
+ assert.equal(initial.status,'READY_FOR_PILOT');assert.equal(g.counters.uploads,uploadCount);
+ const t=await pilotTarget(initial.evidence,editorId);
+ const ahead=await g.store.writeV1PilotAhead({createdBy,editorId,userConfirmed:true,taskId:t.taskId,
+  expectedApprovedSha256:t.approvedSha256,expectedCheckpointSha256:t.checkpointSha256,
+  expectedSessionId:t.sessionId,expectedRevision:t.revision,requestId:'44444444-4444-4444-8444-444444444444',
+  mutationValuesSha256:'b'.repeat(64),boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256});
+ assert.equal(ahead.receipt.verification,'content-sha256-and-etag');
+ const result={schemaVersion:1,format:'mflow-v1-pilot-result',status:'ITEM_READBACK_VERIFIED',
+  boardId,planVersion:1,sessionId,revision:1,taskId:t.taskId,editorId,microsoftEntraObjectId:t.microsoftEntraObjectId,
+  approvedSha256:t.approvedSha256,checkpointSha256:t.checkpointSha256,requestId:ahead.document.requestId,
+  writeAheadSha256:ahead.receipt.sha256,mutationValuesSha256:ahead.document.mutationValuesSha256,
+  mutationAttempts:1,replyConfirmed:true,itemReadbackMatches:true,fullBoardReadbackMatches:true,
+  itemReadbackSha256:await pilotSha(pilotStable(pilotTask(t.after))),boardReadbackSha256:await pilotSha(t.expectedFingerprint),
+  error:null,checkedAt:new Date().toISOString(),automaticallyRetryable:false};
+ const proof=await g.store.saveV1PilotResult({createdBy,result});
+ assert.equal(proof.receipt.verification,'content-sha256-and-etag');
+ assert.equal(g.counters.uploads,uploadCount+2);
+ assert.equal((await g.store.inspectV1Pilot({createdBy,editorId})).status,'PILOT_RECORDED');
+});

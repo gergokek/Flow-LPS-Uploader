@@ -6,13 +6,13 @@ const boardId='5107075373',
  nonce='11111111-1111-4111-8111-111111111111',
  sessionId='22222222-2222-4222-8222-222222222222',
  protocol='mflow-single-draft-session-v1';
-const ready=()=>{
+const ready=(onPilotRequest=async()=>{throw Error('No pilot');})=>{
  let handler,revCalls=0,approvalCalls=0,syncCalls=0;
  const sent=[];
  const opener={postMessage:(payload,origin)=>sent.push({payload,origin})};
  const win={opener,location:{hash:'#mflow-session='+nonce+'&board='+boardId},
   addEventListener:(e,fn)=>handler=fn,removeEventListener:()=>{}};
- const bridge=attachSingleDraftSessionBridge({win,
+ const bridge=attachSingleDraftSessionBridge({win,onPilotRequest,
   onSaveRevision:async({draft})=>{
    revCalls++;
    return {status:'SAVED',sessionId,revision:draft.version,
@@ -130,4 +130,23 @@ test('frozen Approved V1 can be handed off without starting a new DRAFT session'
  await a.emit('prepare-sync-checkpoint',{...args,requestId:'66666666-6666-4666-8666-666666666666'});
  assert.equal(a.syncCalls(),1);
  a.bridge.close();
+});
+
+test('V1 pilot bridge binds source/origin, Approved SHA and request identity; blocks replay',async()=>{
+ const received=[],a=ready(async r=>{received.push(r);return {status:'TEST_REPLY'};});
+ a.emit('hello');const sha='b'.repeat(64),source='d'.repeat(64);
+ assert.equal(a.bridge.approvedForSync({status:'APPROVED_V1_VERIFIED',boardId,sessionId,planVersion:1,revision:4,
+  receipt:{name:'approved-v1.json',sha256:sha,eTag:'etag',verification:'content-sha256-and-etag'},
+  sourceDraftSha256:source,approvedPlan:{sourceDraft:{sha256:source}},mondayWrites:0,mondaySyncAllowed:false}),true);
+ const request={action:'ahead',payload:{taskId:'101'},requestId:'44444444-4444-4444-8444-444444444444',
+  expectedApprovedSha256:sha,expectedSessionId:sessionId,expectedRevision:4};
+ await a.emit('v1-pilot-request',request,'https://forged.example');assert.equal(received.length,0);
+ await a.emit('v1-pilot-request',{...request,expectedApprovedSha256:'f'.repeat(64)});assert.equal(received.length,0);
+ await a.emit('v1-pilot-request',request);assert.equal(received.length,1);
+ assert.ok(a.sent.some(x=>x.payload.kind==='v1-pilot-response'&&x.payload.action==='ahead'));
+ await a.emit('v1-pilot-request',request);assert.equal(received.length,1);
+ await a.emit('v1-pilot-request',{...request,requestId:'55555555-5555-4555-8555-555555555555'});
+ assert.equal(received.length,1);assert.ok(a.sent.some(x=>x.payload.kind==='v1-pilot-failed'));
+ await a.emit('v1-pilot-request',{...request,action:'inspect',requestId:'66666666-6666-4666-8666-666666666666'});
+ assert.equal(received.length,2);a.bridge.close();
 });

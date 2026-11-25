@@ -291,6 +291,48 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   'SHA-256: '+result.checkpoint.sha256+'\n'+
   'Monday-board módosítás: 0. A következő írás külön megerősítést igényel.';
  return result;
+},onPilotRequest:async request=>{
+ const account=msal.getAllAccounts()[0];
+ if(!account||!singleSyncStore||!singleSyncSelected||
+    request.expectedApprovedSha256!==singleSyncSelected.receipt.sha256||
+    request.expectedSessionId!==singleSyncSelected.sessionId||
+    request.expectedRevision!==singleSyncSelected.revision)
+  throw Error('V1 pilot: nincs ellenorzott Approved V1 kapcsolat.');
+ const payload=request.payload||{},createdBy=account.homeAccountId;
+ if(request.action==='inspect'){
+  approvedV1SyncOutput.textContent='V1 pilot: a mar letezo checkpoint es naplok teljes visszaolvasasa. Nincs iras.';
+  const report=await singleSyncStore.inspectV1Pilot({createdBy,editorId:payload.editorId});
+  approvedV1SyncOutput.textContent='V1 pilot ellenorzes: '+report.status+'\nFeladat: '+report.taskName+
+   '\nCheckpoint: sync-v1-prepared.json\nEz az ellenorzes nem ir a Monday-boardra.';
+  return report;
+ }
+ if(request.action==='ahead'){
+  // Show the independently read target, never an untrusted supplied task name.
+  const report=await singleSyncStore.inspectV1Pilot({createdBy,editorId:payload.editorId});
+  if(report.status!=='READY_FOR_PILOT'||report.taskId!==payload.taskId)
+   throw Error('V1 pilot: mar van naplo vagy eltero a celfeladat; iras tiltva.');
+  if(!window.confirm('VALODI MONDAY TEST-IRAS - pontosan egy feladat.\n'+
+   report.taskName+' (#'+report.taskId+')\n'+
+   'Eloszor tartos SharePoint elonaplo keszul. Ezutan a Monday egyszer megkiserli a feladat frissiteset.\n'+
+   'A tobbi feladat nem irhato. Bizonytalan eredmenynel nincs ujraprobalas.\nFolytatod?'))
+   throw Error('V1 pilot: a felhasznalo megszakitotta; nincs elonaplo vagy Monday-iras.');
+  approvedV1SyncOutput.textContent='V1 pilot: WRITE_AHEAD mentese es visszaellenorzese...';
+  const proof=await singleSyncStore.writeV1PilotAhead({...payload,createdBy,userConfirmed:true,
+   requestId:request.requestId,expectedApprovedSha256:request.expectedApprovedSha256,
+   expectedSessionId:request.expectedSessionId,expectedRevision:request.expectedRevision});
+  approvedV1SyncOutput.textContent='V1 pilot elonaplo igazolva: '+proof.receipt.name+
+   '\nA Monday az egyfeladatos iras eredmenyet kulon ellenorzi. Ne zard be ezt az ablakot.';
+  return proof;
+ }
+ if(request.action==='result'){
+  approvedV1SyncOutput.textContent='V1 pilot: a Monday visszaellenorzesi eredmenyenek tartos mentese...';
+  const proof=await singleSyncStore.saveV1PilotResult({createdBy,result:payload.result});
+  approvedV1SyncOutput.textContent='V1 pilot eredmenynaplo mentve es visszaellenorizve: '+proof.receipt.name+
+   '\nAllapot: '+proof.document.status+'\nIrasi kiserlet: '+proof.document.mutationAttempts+
+   '\nEz nem a teljes V1 terv szinkronja. Nincs automatikus kovetkezo feladat.';
+  return proof;
+ }
+ throw Error('Ismeretlen V1 pilot muvelet.');
 },onStatus:state=>{
  if(state==='ready'){
   showAccount(msal.getAllAccounts()[0]||null);

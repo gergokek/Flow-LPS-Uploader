@@ -5,9 +5,9 @@ export const SINGLE_DRAFT_PROTOCOL='mflow-single-draft-session-v1';
 const uuid=s=>typeof s==='string'&&/^[a-f0-9-]{36}$/i.test(s);
 export function attachSingleDraftSessionBridge({win=window,
  onSaveRevision=async()=>{},onApprovePlan=async()=>{},
- onPrepareSync=async()=>{},onStatus=()=>{}}={}){
+ onPrepareSync=async()=>{},onPilotRequest=async()=>{throw Error('V1 pilot is not connected.');},onStatus=()=>{}}={}){
  if(typeof onSaveRevision!=='function'||typeof onApprovePlan!=='function'||
-    typeof onPrepareSync!=='function'||
+    typeof onPrepareSync!=='function'||typeof onPilotRequest!=='function'||
     typeof onStatus!=='function'||
     !win||typeof win.addEventListener!=='function')
   throw Error('Érvénytelen TEST munkamenet-átadás.');
@@ -18,6 +18,7 @@ export function attachSingleDraftSessionBridge({win=window,
    selected:()=>false,approvedForSync:()=>false,saved:()=>false,failed:()=>false});
  let origin=null,closed=false,selectedSession=null,working=false,
   approved=false,blocked=false,approvedForSyncState=null,syncPrepared=false;
+ const pilotSeen=new Set();let pilotAheadUsed=false,pilotResultUsed=false;
  const emit=(kind,extras={})=>{
   if(closed||!origin||!win.opener)return false;
   try{win.opener.postMessage({protocol:SINGLE_DRAFT_PROTOCOL,
@@ -33,6 +34,30 @@ export function attachSingleDraftSessionBridge({win=window,
    origin=event.origin;emit('ready');onStatus('ready');return;
   }
   if(!origin||event.origin!==origin||working||blocked)return;
+  if(event.data.kind==='v1-pilot-request'&&approvedForSyncState){
+   const x=event.data;
+   if(!uuid(x.requestId)||pilotSeen.has(x.requestId)||
+      !['inspect','ahead','result'].includes(x.action)||
+      x.expectedApprovedSha256!==approvedForSyncState.sha256||
+      x.expectedSessionId!==approvedForSyncState.sessionId||
+      x.expectedRevision!==approvedForSyncState.revision)return;
+   pilotSeen.add(x.requestId);working=true;
+   try{
+    if(x.action==='ahead'&&pilotAheadUsed||x.action==='result'&&pilotResultUsed)
+     throw Error('V1 pilot: ugyanaz az iras nem ismetelheto.');
+    if(x.action==='ahead')pilotAheadUsed=true;
+    if(x.action==='result')pilotResultUsed=true;
+    const result=await onPilotRequest({action:x.action,payload:x.payload,
+     requestId:x.requestId,expectedApprovedSha256:x.expectedApprovedSha256,
+     expectedSessionId:x.expectedSessionId,expectedRevision:x.expectedRevision});
+    emit('v1-pilot-response',{requestId:x.requestId,action:x.action,
+     approvedSha256:approvedForSyncState.sha256,result});
+   }catch(error){
+    emit('v1-pilot-failed',{requestId:x.requestId,action:x.action,
+     message:String(error?.message||error).slice(0,350)});
+   }finally{working=false;}
+   return;
+  }
   if(event.data.kind==='prepare-sync-checkpoint'&&approvedForSyncState&&!syncPrepared){
    const x=event.data;
    if(!uuid(x.requestId)||x.expectedApprovedSha256!==approvedForSyncState.sha256||
