@@ -1,1 +1,1 @@
-2026-11-25 full V1 sync: single consent, sequential immutable journals, verified-prefix recovery and final receipt. Implementation d19c27d070bd4b12f6f2e0e5486fcac749a70813. TEST /test/ only; main root unchanged.
+2026-11-25 full V1 consent fix: explicit inline Uploader approval replaces asynchronous native confirm. Implementation a3d1380e8f6af1b78348948e965d5c42882c7c20; verified regression/build/browser run 45635879046. TEST /test/ only, main root unchanged. No live Monday or SharePoint writes by deployment.
