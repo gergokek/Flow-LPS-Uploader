@@ -53,8 +53,10 @@ function showAccount(account){
  graphButton.disabled=!account;
  document.querySelector('#listStoredSyncCheckpoints').disabled=!account||projectBoard.value.trim()!=='5107075373';
  projectSetup.disabled=!account;
- createSingleDraft.disabled=!account||projectBoard.value.trim()!=='5107075373';
- resumeSingleDraft.disabled=!account||projectBoard.value.trim()!=='5107075373';
+ // The TEST session may only be started from the authenticated Monday opener.
+ const connected=!!singleBridge?.active&&singleBridge.ready();
+ createSingleDraft.disabled=!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
+ resumeSingleDraft.disabled=!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
  draftSaveButton.disabled=!account||!draftTransferText;
  editedSave.disabled=!account||!editedDraftText;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
@@ -232,6 +234,10 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   throw Error('A SharePoint-mentés verziója eltér.');
  return singleSession;
 },onStatus:state=>{
+ if(state==='ready'){
+  showAccount(msal.getAllAccounts()[0]||null);
+  singleDraftOutput.textContent='Kapcsolat létrejött a Monday TEST-alkalmazással. Jelentkezz be, majd hozd létre vagy folytasd a DRAFT-ot.';
+ }
  if(state==='blocked')singleDraftOutput.textContent=
   'A DRAFT-mentés bizonytalan. A munkamenet csak független SharePoint-ellenőrzés után folytatható.';
 }});
@@ -246,8 +252,8 @@ function singleStoreFor(account,boardId){
 async function openSingleSession(kind){
  if(singleBusy||singleSession)return;
  const boardId=projectBoard.value.trim(),account=msal.getAllAccounts()[0];
- if(boardId!=='5107075373'||!account){
-  singleDraftOutput.textContent='A TEST projekt és a Microsoft-bejelentkezés szükséges.';
+ if(boardId!=='5107075373'||!account||!singleBridge.active||!singleBridge.ready()){
+  singleDraftOutput.textContent='A TEST projekt, Microsoft-bejelentkezés és a Monday TEST-ből indított kapcsolódás szükséges.';
   return;
  }
  if(kind==='start'&&!window.confirm('A SharePoint Approved Plan V0-ból új, '+
@@ -294,7 +300,8 @@ async function openSingleSession(kind){
  }finally{
   singleBusy=false;
   const enabled=!!msal.getAllAccounts()[0]&&
-   projectBoard.value.trim()==='5107075373'&&!singleSession;
+   projectBoard.value.trim()==='5107075373'&&!singleSession&&
+   singleBridge.active&&singleBridge.ready();
   createSingleDraft.disabled=!enabled;resumeSingleDraft.disabled=!enabled;
  }
 }
