@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment:
-      name: github-pages
+      name: mflow-test-preview
       url: ${{ steps.deployment.outputs.page_url }}test/
     steps:
       - name: Checkout deployed production root from main
@@ -65,3 +65,5 @@ jobs:
       - name: Deploy public root unchanged plus TEST subpath
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          environment: mflow-test-preview
