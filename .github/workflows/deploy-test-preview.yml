@@ -17,6 +17,8 @@ jobs:
   test-preview:
     if: github.ref == 'refs/heads/feat/test-single-draft-session'
     runs-on: ubuntu-24.04
+    env:
+      PAGES_ARTIFACT_NAME: mflow-pages-${{ github.run_id }}-${{ github.run_attempt }}
     timeout-minutes: 30
     environment:
       name: mflow-test-preview
@@ -63,13 +65,14 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./pages
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
       - name: Confirm Pages artifact indexed before deployment
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           for i in $(seq 1 20); do
-            if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name' | grep -Fxq 'github-pages'; then
+            if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name' | grep -Fxq "$PAGES_ARTIFACT_NAME"; then
               echo 'Pages artifact is indexed'; exit 0
             fi
             sleep 3
@@ -78,3 +81,5 @@ jobs:
       - name: Deploy public root unchanged plus TEST subpath
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
