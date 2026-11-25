@@ -1,0 +1,26 @@
+name: Verify V1 pilot patch transport
+on:
+  push:
+    branches: [feat/test-single-draft-session]
+    paths: [.github/workflows/v1-pilot-patch-check.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/feat/test-single-draft-session'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Copy transport bytes for integrity review only
+        run: |
+          mkdir transport
+          cp .github/v1-pilot-implementation.b64 transport/payload.b64
+          sha256sum transport/payload.b64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v1-pilot-transport-review
+          path: transport/payload.b64
+          retention-days: 1
