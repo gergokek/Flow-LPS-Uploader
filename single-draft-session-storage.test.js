@@ -287,7 +287,7 @@ test('approval rejects old board proof, stale revision, changed identity with no
   boardFingerprintSha256:await sha256(new TextEncoder().encode(
    fingerprint(g.v0.plan.base)))};
  await assert.rejects(g.store.approve({...args,
-  boardVerifiedAt:'2026-01-01T00:00:00.000Z'}),/friss/);
+  boardVerifiedAt:'2026-01-01T00:00:00.000Z'}),/Friss/);
  await assert.rejects(g.store.approve({...args,
   expectedRevision:2}),/megváltozott/);
  await assert.rejects(g.store.approve({...args,
