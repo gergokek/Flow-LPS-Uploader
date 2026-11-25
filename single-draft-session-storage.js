@@ -1,6 +1,7 @@
 import {ACTIVE_NAME,BASELINE_NAME,V0_NAME,MAX_DRAFT_BYTES,
  sha256,hex,stable,inspectV0,newSessionClaim,makeBaseline,inspectRevision,
  makeNextDraft,revisionName} from './single-draft-session-core.js';
+import {describeV1Approval,FREEZE_NAME,APPROVED_V1_NAME} from './single-draft-approval-core.js';
 
 const safeDomains=['.sharepoint.com','.sharepointonline.com','.sharepoint-df.com',
  '.1drv.com','.blob.core.windows.net'];
@@ -202,9 +203,12 @@ export function createSingleDraftSessionStore({boardId,driveId,
    versionLabel:'V1',sourceApprovedSha256:v0.sha256,
    claimReceipt:savedClaim,receipt:saved,draft:baseline});
  }
- async function resume(){
+ async function resume({allowFrozen=false}={}){
   check();
   const current=await claim();
+  const freeze=await readFile(draftPath(FREEZE_NAME));
+  if(freeze&&!allowFrozen)
+   throw Error('A V1 munkamenet jóváhagyásra zárolva; további szerkesztés és automatikus folytatás TILTVA.');
   requireValid(!!current,'Nincs aktív DRAFT-munkamenet.');
   const v0=await readV0();
   requireValid(current.value.approvedV0Sha256===v0.sha256,
@@ -227,6 +231,16 @@ export function createSingleDraftSessionStore({boardId,driveId,
     'A DRAFT módosította a V0 kiinduló adatokat.');
    last=next;lastRevision=rev;
   }
+  if(freeze){
+   requireValid(freeze.value?.schemaVersion===1&&
+    freeze.value.format==='mflow-single-draft-freeze'&&
+    freeze.value.status==='APPROVAL_FROZEN'&&
+    freeze.value.sessionId===current.value.sessionId&&
+    freeze.value.boardId===boardId&&
+    freeze.value.revision===lastRevision&&
+    freeze.value.finalDraftSha256===last.sha256,
+    'A zárolt V1 munkamenet és a SharePoint DRAFT-verzió eltér.');
+  }
   check();
   return Object.freeze({status:'ACTIVE',boardId,
    sessionId:current.value.sessionId,planVersion:1,
@@ -245,11 +259,107 @@ export function createSingleDraftSessionStore({boardId,driveId,
   const draft=makeNextDraft({previous:verified.draft,
    claim:(await claim()).value,
    previousSha256:expectedParentSha256,updated:updatedDraft});
+  requireValid(await readFile(draftPath(FREEZE_NAME))===null,
+   'A V1 már véglegesítés alatt áll; DRAFT-módosítás tiltva.');
   const saved=await createFile('Draft-Plans',revisionName(draft.version),draft);
   check();
   return Object.freeze({status:'SAVED',boardId,
    sessionId:verified.sessionId,planVersion:1,revision:draft.version,
    versionLabel:'V1.'+draft.version,receipt:saved,draft});
  }
- return Object.freeze({start,resume,append,readV0});
+ async function reviewApproval({expectedSessionId,expectedRevision,
+  expectedSha256,createdBy,editorId}={}){
+  check();
+  const verified=await resume();
+  requireValid(verified.sessionId===expectedSessionId&&
+   verified.revision===expectedRevision&&verified.receipt.sha256===expectedSha256,
+   'A Monday ellenőrzött DRAFT-verziója és a SharePoint legfrissebb verziója eltér.');
+  const v0=await readV0();
+  const planned=describeV1Approval({verified,v0:v0.value,createdBy,editorId,
+   at:now().toISOString()});
+  return Object.freeze({...planned.review,readOnly:true,
+   latestDraftVerified:true});
+ }
+ async function approve({expectedSessionId,expectedRevision,expectedSha256,
+  createdBy,editorId,boardVerifiedAt,boardFingerprintSha256}={}){
+  check();
+  const readTime=Date.parse(boardVerifiedAt),currentTime=now().getTime();
+  requireValid(hex(expectedSha256)&&hex(boardFingerprintSha256)&&
+   Number.isFinite(readTime)&&Number.isFinite(currentTime)&&
+   readTime<=currentTime&&currentTime-readTime<=120000&&
+   typeof editorId==='string'&&/^\d+$/.test(editorId),
+   'Friss, teljes Monday-board visszaolvasás és szerkesztői azonosító szükséges.');
+  const verified=await resume();
+  requireValid(verified.sessionId===expectedSessionId&&
+   verified.revision===expectedRevision&&
+   verified.receipt.sha256===expectedSha256,
+   'A DRAFT megváltozott a Monday véglegesítési előnézetének elkészítése óta.');
+  const v0=await readV0();
+  const plan=describeV1Approval({verified,v0:v0.value,createdBy,editorId,
+   at:now().toISOString()});
+  const boardDigest=await sha256(new TextEncoder().encode(plan.approved.sourceFingerprint));
+  requireValid(boardDigest===boardFingerprintSha256,
+   'A Monday-board és a V0 kiinduló állapot SHA-256 bizonyítéka eltér.');
+  // Delegated Entra identity is read from Graph, not from a postMessage body.
+  const token=await getAccessToken();
+  requireValid(typeof token==='string'&&token.length>0,
+   'Microsoft Graph token szükséges az Approved Planhoz.');
+  const who=await fetcher('https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName',{
+   method:'GET',cache:'no-store',redirect:'error',
+   headers:{Authorization:'Bearer '+token,Accept:'application/json'}});
+  requireValid(who.ok,'A Microsoft Graph /me azonosítás sikertelen: HTTP '+who.status);
+  const me=await who.json();
+  requireValid(typeof me?.id==='string'&&
+   /^[0-9a-f-]{36}$/i.test(me.id)&&
+   typeof me?.userPrincipalName==='string'&&!!me.userPrincipalName,
+   'Érvénytelen Microsoft Entra személyazonosság.');
+  const approvalPlan=structuredClone(plan.approved);
+  approvalPlan.finalization.microsoftEntraObjectId=me.id;
+  approvalPlan.finalization.microsoftUserPrincipalName=me.userPrincipalName;
+  approvalPlan.finalization.boardVerifiedAt=boardVerifiedAt;
+  approvalPlan.finalization.boardFingerprintSha256=boardFingerprintSha256;
+  // Preflight: no pre-existing or ambiguous approval artifacts.
+  requireValid(await readFile(draftPath(FREEZE_NAME))===null&&
+   await readFile(approvedPath(APPROVED_V1_NAME))===null&&
+   await readFile(draftPath('session-v1-approved.json'))===null,
+   'A V1 véglegesítése már elindult vagy elkészült; tilos automatikusan újrapróbálni.');
+  check();
+  const freeze=await createFile('Draft-Plans',FREEZE_NAME,plan.freeze);
+  // After freezing, re-read every immutable revision and verify the final
+  // snapshot did not advance concurrently. A drift blocks approval.
+  const frozen=await resume({allowFrozen:true});
+  requireValid(frozen.revision===verified.revision&&
+   frozen.receipt.sha256===verified.receipt.sha256&&
+   frozen.sessionId===verified.sessionId,
+   'A V1 megváltozott a véglegesítési zárolás alatt; kézi egyeztetés szükséges.');
+  const approved=await createFile('Approved-Plans',APPROVED_V1_NAME,approvalPlan);
+  // Final readback ensures the SharePoint plan refers to the same immutable V1.X.
+  const post=await resume({allowFrozen:true});
+  requireValid(post.revision===verified.revision&&
+   post.receipt.sha256===verified.receipt.sha256,
+   'A DRAFT eltér a mentett Approved Plantől; nincs sikeres zárás.');
+  const marker={
+   schemaVersion:1,format:'mflow-single-draft-approval-receipt',
+   status:'APPROVED_PLAN_V1_STORED',boardId,planVersion:1,
+   sessionId:verified.sessionId,revision:verified.revision,
+   finalDraftSha256:verified.receipt.sha256,
+   approvedPlanSha256:approved.sha256,
+   approvedPlanId:approved.id,approvedPlanETag:approved.eTag,
+   approvedPlanName:APPROVED_V1_NAME,
+   frozenSha256:freeze.sha256,
+   microsoftEntraObjectId:me.id,approvedAt:now().toISOString(),
+   mondayWrites:0,automaticallyRetryable:false
+  };
+  const receipt=await createFile('Draft-Plans','session-v1-approved.json',marker);
+  check();
+  return Object.freeze({status:'APPROVED_PLAN_V1_STORED',boardId,
+   planVersion:1,revision:verified.revision,sessionId:verified.sessionId,
+   finalDraftSha256:verified.receipt.sha256,
+   approvedPlan:{name:approved.name,id:approved.id,eTag:approved.eTag,
+    sha256:approved.sha256,path:approved.path,
+    verification:approved.verification},
+   freezeSha256:freeze.sha256,receiptSha256:receipt.sha256,
+   mondayWrites:0,mondaySyncAllowed:false,readOnlyBoard:true});
+ }
+ return Object.freeze({start,resume,append,readV0,reviewApproval,approve});
 }
