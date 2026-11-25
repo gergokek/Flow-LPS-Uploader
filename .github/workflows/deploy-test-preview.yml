@@ -1,0 +1,67 @@
+name: Deploy isolated Uploader TEST preview
+on:
+  push:
+    branches: [feat/test-single-draft-session]
+    paths:
+      - .github/test-preview-release.txt
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  test-preview:
+    if: github.ref == 'refs/heads/feat/test-single-draft-session'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}test/
+    steps:
+      - name: Checkout deployed production root from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: site-main
+          persist-credentials: false
+      - name: Checkout isolated TEST feature
+        uses: actions/checkout@v4
+        with:
+          ref: feat/test-single-draft-session
+          path: site-test
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify both sources without any Graph or Monday writes
+        run: |
+          cd site-main && npm install --no-audit --no-fund && npm test && npm run build
+          cd ../site-test && npm install --no-audit --no-fund && npm test
+          VITE_MFLOW_TEST_PREVIEW=1 npm run build -- --base=/Flow-LPS-Uploader/test/
+      - name: Assemble existing main unchanged and isolated /test/
+        shell: bash
+        run: |
+          mkdir -p pages
+          cp -a site-main/dist/. pages/
+          cd pages && find . -type f ! -path './test/*' -print0 | sort -z | xargs -0 sha256sum > ../before.sha
+          cd ..
+          mkdir -p pages/test
+          cp -a site-test/dist/. pages/test/
+          cd pages && find . -type f ! -path './test/*' -print0 | sort -z | xargs -0 sha256sum > ../after.sha
+          cd ..
+          diff -u before.sha after.sha
+          test -f pages/redirect.html
+          test -f pages/test/index.html
+          test -f pages/test/redirect.html
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload combined Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./pages
+      - name: Deploy public root unchanged plus TEST subpath
+        id: deployment
+        uses: actions/deploy-pages@v4
