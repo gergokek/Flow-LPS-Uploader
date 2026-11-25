@@ -50,7 +50,7 @@ function fakeGraph({writeStatus=null}={}){
   if(path.startsWith('/root:/')){
    const partial=path.slice('/root:/'.length).split('/');
    const dir=partial[2];
-   const name=partial.slice(3).join('/');
+   const name=partial.slice(3).join('/').replace(/:\/content$/,'');
    if(!name){
     if(method==='GET')return response({id:'folder-'+dir,name:dir,folder:{},
      parentReference:{driveId}});
