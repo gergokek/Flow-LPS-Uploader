@@ -14,3 +14,5 @@ Release attempt 3: wait for Actions artifact availability before Pages deploy.
 2026-11-25 TEST deploy: unique artifact plus metadata convergence wait; same no-overwrite Graph V1 fix.
 
 2026-11-25: V1.2 Candidate recovery fix: compare V1.X baseline by canonical JSON content instead of property insertion order; includes regression for saved V1.1, Candidate, V1.2 and tampered baseline.
+
+2026-11-25 release: V1.X review/approval, immutable freeze, Approved Plan V1 Graph readback, Entra User.Read identity, strict fail-closed bridging. TEST /test/ only; main root unchanged.
