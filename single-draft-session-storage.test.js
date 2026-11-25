@@ -45,7 +45,8 @@ function fakeGraph({writeStatus=null}={}){
    if(!found)return new Response('',{status:404});
    return new Response(found.content,{status:200});
   }
-  if(url==='https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName'&&
+  if(['https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName',
+      'https://graph.microsoft.com/v1.0/me?$select=id'].includes(url)&&
      method==='GET')
    return response({id:'22222222-2222-4222-8222-222222222222',
     userPrincipalName:'test-approver@example.org'});
@@ -99,8 +100,9 @@ function fakeGraph({writeStatus=null}={}){
   }
   throw Error('Unknown Graph API '+method+' '+url);
  };
+ let uuidCount=0;
  const store=createSingleDraftSessionStore({boardId,driveId,fetcher,
-  getAccessToken:async()=> 'token',randomUUID:()=>sessionId});
+  getAccessToken:async()=> 'token',randomUUID:()=>uuidCount++?crypto.randomUUID():sessionId});
  return {store,files,counters,v0};
 }
 test('V0 creates one active claim and immutable V1 baseline; second start denied',async()=>{
@@ -407,4 +409,56 @@ test('V1 pilot uses real store readback chain and immutable journal create paths
  assert.equal(proof.receipt.verification,'content-sha256-and-etag');
  assert.equal(g.counters.uploads,uploadCount+2);
  assert.equal((await g.store.inspectV1Pilot({createdBy,editorId})).status,'PILOT_RECORDED');
+});
+
+
+test('real Graph adapter: completed V1 creates only closure/claim/V2 baseline; edit and resume preserve V1',async()=>{
+ const {pilotSha,pilotStable,pilotTask,pilotTarget}=await import('./v1-pilot-contract.js');
+ const {inspectFullSyncEvidence}=await import('./v1-full-sync-contract.js');
+ const createdBy='22222222-2222-4222-8222-222222222222.816099a1-2aff-441c-b4ef-9c3a405ac2fa',editorId='96423073';
+ const g=fakeGraph(),v1=await g.store.start({createdBy}),edit=structuredClone(v1.draft);
+ edit.version=1;edit.history=[{revision:1,type:'edit',at:new Date().toISOString()}];edit.working[0].note='Approved final';
+ const saved=await g.store.append({updatedDraft:edit,expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
+ const sourceHash=await pilotSha(fingerprint(g.v0.plan.base));
+ const approved=await g.store.approve({expectedSessionId:sessionId,expectedRevision:1,expectedSha256:saved.receipt.sha256,
+  createdBy,editorId,boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256:sourceHash});
+ await g.store.prepareApprovedSync({expectedApprovedSha256:approved.approvedPlan.sha256,
+  createdBy,editorId,boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256:sourceHash});
+ const inspected=await g.store.inspectV1Pilot({createdBy,editorId}),t=await pilotTarget(inspected.evidence,editorId);
+ const ahead=await g.store.writeV1PilotAhead({createdBy,editorId,userConfirmed:true,taskId:t.taskId,
+  expectedApprovedSha256:t.approvedSha256,expectedCheckpointSha256:t.checkpointSha256,
+  expectedSessionId:t.sessionId,expectedRevision:t.revision,requestId:crypto.randomUUID(),
+  mutationValuesSha256:'b'.repeat(64),boardVerifiedAt:new Date().toISOString(),boardFingerprintSha256:sourceHash});
+ await g.store.saveV1PilotResult({createdBy,result:{schemaVersion:1,format:'mflow-v1-pilot-result',status:'ITEM_READBACK_VERIFIED',
+  boardId,planVersion:1,sessionId,revision:1,taskId:t.taskId,editorId,microsoftEntraObjectId:t.microsoftEntraObjectId,
+  approvedSha256:t.approvedSha256,checkpointSha256:t.checkpointSha256,requestId:ahead.document.requestId,
+  writeAheadSha256:ahead.receipt.sha256,mutationValuesSha256:ahead.document.mutationValuesSha256,
+  mutationAttempts:1,replyConfirmed:true,itemReadbackMatches:true,fullBoardReadbackMatches:true,
+  itemReadbackSha256:await pilotSha(pilotStable(pilotTask(t.after))),boardReadbackSha256:await pilotSha(t.expectedFingerprint),
+  error:null,checkedAt:new Date().toISOString(),automaticallyRetryable:false}});
+ const full=g.store.fullSync,initial=await full.inspect({createdBy,editorId});
+ const state=await inspectFullSyncEvidence(initial.evidence,editorId);
+ const params={createdBy,editorId,executionId:crypto.randomUUID(),expectedApprovedSha256:t.approvedSha256,
+  expectedCheckpointSha256:t.checkpointSha256,ledgerSha256:state.ledgerSha256,
+  boardFingerprintSha256:state.expectedBoardSha256,boardVerifiedAt:new Date().toISOString()};
+ await full.begin({...params,userConfirmed:true});await full.inspect({createdBy,editorId});await full.finish(params);
+ const oldContents=new Map([...g.files].map(([path,f])=>[path,new TextDecoder().decode(f.content)]));
+ const writes=g.counters.uploads,next=g.store.nextSession,report=await next.inspect({createdBy,editorId});
+ assert.equal(report.status,'V2_READY_TO_START');assert.equal(g.counters.uploads,writes);
+ const v2args={createdBy,editorId,executionId:crypto.randomUUID(),generationSha256:report.generationSha256,
+  expectedApprovedSha256:t.approvedSha256,completionSha256:report.evidence.final.receipt.sha256,
+  boardFingerprintSha256:report.evidence.final.document.boardReadbackSha256,boardVerifiedAt:new Date().toISOString()};
+ await next.begin({...v2args,userConfirmed:true});assert.equal(g.counters.uploads,writes);
+ const opened=await next.open(v2args);assert.equal(opened.status,'V2_ACTIVE');assert.equal(g.counters.uploads,writes+3);
+ const draft=structuredClone(opened.baseline.document);assert.equal(draft.working[0].note,'Approved final');
+ assert.notEqual(draft.session.sessionId,sessionId);draft.version=1;draft.history=[{revision:1,type:'edit',at:new Date().toISOString()}];
+ draft.working[0].note='New V2 edit';
+ await next.append({updatedDraft:draft,expectedSessionId:draft.session.sessionId,expectedParentSha256:opened.baseline.receipt.sha256});
+ assert.equal(g.counters.uploads,writes+4);
+ const resumed=await next.inspect({createdBy,editorId});
+ assert.equal(resumed.revision,1);assert.equal(resumed.claim.document.sessionId,draft.session.sessionId);
+ await next.open({...v2args,generationSha256:resumed.generationSha256,boardVerifiedAt:new Date().toISOString()});
+ assert.equal(g.counters.uploads,writes+4);
+ for(const [path,content] of oldContents)assert.equal(new TextDecoder().decode(g.files.get(path).content),content,path);
+ await assert.rejects(g.store.resume(),/z.arolva|zárolva/);
 });

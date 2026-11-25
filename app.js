@@ -1,3 +1,4 @@
+import {requestV2SessionConsent} from './v2-session-consent-ui.js';
 import {beginV1FullSyncWithConsent} from './full-sync-consent-ui.js';
 import {createSessionDraftAutosave} from './draft-session-autosave.js';
 import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
@@ -253,7 +254,7 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
  return singleSession;
 },onApprovePlan:async request=>{
  const account=msal.getAllAccounts()[0];
- if(!singleStore||!singleSession||!singleSessionQueue||
+ if(!singleStore||!singleSession||singleSession.planVersion===2||!singleSessionQueue||
     !account||!singleSessionQueue.state().canApprove||
     singleSession.status!=='SAVED'&&singleSession.status!=='ACTIVE'||
     singleSession.sessionId!==request.expectedSessionId||
@@ -300,6 +301,39 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
     request.expectedRevision!==singleSyncSelected.revision)
   throw Error('V1 pilot: nincs ellenorzott Approved V1 kapcsolat.');
  const payload=request.payload||{},createdBy=account.homeAccountId;
+ if(request.action.startsWith('v2-')){
+  const next=singleSyncStore.nextSession,action=request.action.slice(3);
+  const args={...payload,createdBy,requestId:request.requestId};
+  if(action==='inspect'){
+   approvedV1SyncOutput.textContent='V1 lezaro nyugta es teljes naplolanc, majd V2 munkamenet ellenorzese. Csak olvasas.';
+   return next.inspect(args);
+  }
+  if(action==='begin'){
+   const selected=singleSyncSelected,store=singleSyncStore,opener=window.opener;
+   const isCurrent=()=>singleSyncSelected===selected&&singleSyncStore===store&&
+    projectBoard.value.trim()==='5107075373'&&msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+    msal.getAllAccounts()[0]?.tenantId===account.tenantId&&singleBridge.active&&singleBridge.ready()&&
+    singleBridge.syncSession()?.sha256===request.expectedApprovedSha256&&
+    !!opener&&window.opener===opener&&!opener.closed;
+   const report=await next.inspect(args);
+   if(report.generationSha256!==args.generationSha256||!isCurrent())throw Error('A V2 forras megvaltozott.');
+   approvedV1SyncOutput.textContent='V2 inditas a lenti kifejezett jovahagyasra var. Meg nem tortent iras.';
+   const accepted=await requestV2SessionConsent({host:approvedV1SyncOutput.parentElement,report,isCurrent});
+   if(!accepted||!isCurrent())throw Error('A V2 inditasa megszakitva. Nem tortent iras.');
+   return next.begin({...args,userConfirmed:true});
+  }
+  if(action==='open'){
+   const report=await next.open(args),last=report.revisions.at(-1)||report.baseline;
+   const selected={status:'ACTIVE',boardId:'5107075373',planVersion:2,
+    sessionId:report.claim.document.sessionId,revision:last.document.version,
+    versionLabel:'V2'+(last.document.version?'.'+last.document.version:''),draft:last.document,receipt:last.receipt};
+   installV2EditorQueue(next,selected);
+   approvedV1SyncOutput.textContent='V1 tervezesi munkamenet lezart. Aktiv '+selected.versionLabel+
+    ' DRAFT, '+report.taskCount+' feladat. Monday-iras: 0. Regi fajlokat nem toroltunk.';
+   showAccount(account);return report;
+  }
+  throw Error('Ismeretlen V2 muvelet.');
+ }
  if(request.action.startsWith('full-')){
   const full=singleSyncStore.fullSync,action=request.action.slice(5);
   const args={...payload,createdBy,requestId:request.requestId};
@@ -391,6 +425,18 @@ function singleStoreFor(account,boardId){
   assertCurrent:()=>projectBoard.value.trim()===boardId&&
    msal.getAllAccounts()[0]?.homeAccountId===originalId&&
    msal.getAllAccounts()[0]?.tenantId===tenant});
+}
+function installV2EditorQueue(store,selected){
+ const queue=createImmutableDraftQueue({persist:async work=>{
+  const proof=await store.append(work);singleSession=proof;return proof;
+ },onState:state=>{
+  singleDraftOutput.textContent=state.blocked?'V2 DRAFT mentes leallitva: '+state.blocked:
+   state.active?'V2.'+(state.verifiedRevision+1)+' feltoltes es visszaellenorzes...':
+   'V2'+(state.verifiedRevision?'.'+state.verifiedRevision:'')+' DRAFT visszaellenorizve. Monday-iras: 0.';
+ }});
+ queue.open({sessionId:selected.sessionId,revision:selected.revision,sha256:selected.receipt.sha256});
+ singleStore=store;singleSession=selected;singleSessionQueue=queue;
+ singleDraftOutput.textContent='Aktiv '+selected.versionLabel+' DRAFT atadva a Monday szerkesztonek.';
 }
 async function openSingleSession(kind){
  if(singleBusy||singleSession)return;

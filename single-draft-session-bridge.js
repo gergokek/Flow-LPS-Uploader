@@ -34,10 +34,10 @@ export function attachSingleDraftSessionBridge({win=window,
    origin=event.origin;emit('ready');onStatus('ready');return;
   }
   if(!origin||event.origin!==origin||working||blocked)return;
-  if(event.data.kind==='v1-pilot-request'&&approvedForSyncState){
+  if(event.data.kind==='v1-pilot-request'&&approvedForSyncState&&!selectedSession){
    const x=event.data;
    if(!uuid(x.requestId)||pilotSeen.has(x.requestId)||
-      !['inspect','ahead','result','full-inspect','full-begin','full-reconcile','full-ahead','full-result','full-finish'].includes(x.action)||
+      !['inspect','ahead','result','full-inspect','full-begin','full-reconcile','full-ahead','full-result','full-finish','v2-inspect','v2-begin','v2-open'].includes(x.action)||
       x.expectedApprovedSha256!==approvedForSyncState.sha256||
       x.expectedSessionId!==approvedForSyncState.sessionId||
       x.expectedRevision!==approvedForSyncState.revision)return;
@@ -50,6 +50,15 @@ export function attachSingleDraftSessionBridge({win=window,
     const result=await onPilotRequest({action:x.action,payload:x.payload,
      requestId:x.requestId,expectedApprovedSha256:x.expectedApprovedSha256,
      expectedSessionId:x.expectedSessionId,expectedRevision:x.expectedRevision});
+    if(x.action==='v2-open'){
+     const latest=result.revisions?.at(-1)||result.baseline;
+     if(result.status!=='V2_ACTIVE'||!uuid(result.claim?.document?.sessionId)||
+        latest?.document?.session?.planVersion!==2||
+        latest.document.session.sessionId!==result.claim.document.sessionId)
+      throw Error('Invalid V2 activation result.');
+     selectedSession={sessionId:result.claim.document.sessionId,planVersion:2,
+      revision:latest.document.version,sha256:latest.receipt.sha256};
+    }
     emit('v1-pilot-response',{requestId:x.requestId,action:x.action,
      approvedSha256:approvedForSyncState.sha256,result});
    }catch(error){
@@ -105,6 +114,7 @@ export function attachSingleDraftSessionBridge({win=window,
    if(!uuid(requestId)||!draft||typeof draft!=='object'||
       draft.boardId!==boardId||
       draft.session?.sessionId!==selectedSession.sessionId||
+      (selectedSession.planVersion===2&&draft.session?.planVersion!==2)||
       draft.version!==selectedSession.revision+1)return;
    working=true;
    try{
@@ -125,7 +135,7 @@ export function attachSingleDraftSessionBridge({win=window,
     emit('revision-failed',{requestId,message:String(error?.message||error).slice(0,300)});
     onStatus('blocked');
    }finally{working=false;}
-  }else if(event.data.kind==='approve-plan'){
+  }else if(event.data.kind==='approve-plan'&&selectedSession.planVersion!==2){
    const x=event.data;
    if(!uuid(x.requestId)||x.expectedSessionId!==selectedSession.sessionId||
       x.expectedRevision!==selectedSession.revision||

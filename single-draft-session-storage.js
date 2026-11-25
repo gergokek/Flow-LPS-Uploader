@@ -1,3 +1,4 @@
+import {createV2SessionStore} from './v2-session-storage.js';
 import {createV1FullSyncStore} from './single-v1-full-sync-storage.js';
 import {createV1PilotStore} from './single-v1-pilot-storage.js';
 import {ACTIVE_NAME,BASELINE_NAME,V0_NAME,MAX_DRAFT_BYTES,
@@ -37,6 +38,7 @@ export function createSingleDraftSessionStore({boardId,driveId,
   check();
   const token=await getAccessToken();
   requireValid(typeof token==='string'&&token.length>0,'Microsoft Graph token szükséges.');
+  check();
   return fetcher(root+path,{method:'GET',cache:'no-store',redirect:'error',...options,
    headers:{Authorization:'Bearer '+token,Accept:'application/json',...options.headers}});
  };
@@ -461,10 +463,7 @@ export function createSingleDraftSessionStore({boardId,driveId,
   }
   requireValid(!next,'Incomplete Sync-Status pagination.');return out;
  }
- const full=createV1FullSyncStore({inspectPilot:pilot.inspect,
-  readSync:name=>readFile(urlOf([...folder('Sync-Status'),name])),listSync:listFullSyncFiles,
-  createSync:(name,value)=>createFile('Sync-Status',name,value),check,now,
-  checkPinned:async(e,createdBy)=>{
+ async function verifyPinnedV1(e,createdBy){
    check();const refs=[e.receipt,e.checkpointReceipt,e.ahead.receipt,e.result.receipt];
    for(const receipt of refs){
     const folderName=receipt.name==='approved-v1.json'?'Approved-Plans':'Sync-Status';
@@ -478,9 +477,34 @@ export function createSingleDraftSessionStore({boardId,driveId,
    const me=await response.json();
    requireValid(me?.id?.toLowerCase()===e.checkpoint.microsoftEntraObjectId.toLowerCase()&&
     createdBy===e.checkpoint.createdBy,'Full sync identity changed.');check();
+ }
+ const full=createV1FullSyncStore({inspectPilot:pilot.inspect,
+  readSync:name=>readFile(urlOf([...folder('Sync-Status'),name])),listSync:listFullSyncFiles,
+  createSync:(name,value)=>createFile('Sync-Status',name,value),check,now,checkPinned:verifyPinnedV1});
+ async function listAllDraftFiles(){
+  const parent=await folderMeta('Draft-Plans'),out=[],seen=new Set();
+  let next=root+'/items/'+encodeURIComponent(parent.id)+'/children?$select=id,name,file,size,eTag&$top=200';
+  for(let n=0;next&&n<50;n++){
+   requireValid(next.startsWith(root+'/')&&!seen.has(next),'Invalid DRAFT pagination.');seen.add(next);
+   const response=await request(next.slice(root.length));
+   requireValid(response.ok,'DRAFT list HTTP '+response.status);
+   const data=await response.json();requireValid(Array.isArray(data.value),'Invalid DRAFT listing.');
+   out.push(...data.value);next=data['@odata.nextLink']||null;
+  }
+  requireValid(!next,'Incomplete DRAFT listing.');return out;
+ }
+ const nextSession=createV2SessionStore({inspectCompleted:args=>full.inspect(args),
+  readDraft:name=>readFile(draftPath(name)),listDraft:listAllDraftFiles,
+  createDraft:(name,value)=>createFile('Draft-Plans',name,value),check,now,randomUUID,
+  checkPinned:async(e,oldClaim,createdBy)=>{
+   await verifyPinnedV1(e,createdBy);
+   for(const [folderName,receipt] of [['Sync-Status',e.final.receipt],['Draft-Plans',oldClaim.receipt]]){
+    const current=await metadata(urlOf([...folder(folderName),receipt.name]));
+    requireValid(current?.id===receipt.id&&current.eTag===receipt.eTag,'V1 closure source changed.');
+   }check();
   }});
  return Object.freeze({start,resume,append,readV0,reviewApproval,approve,
   inspectApprovedSync,prepareApprovedSync,
   inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
-  saveV1PilotResult:pilot.saveResult,fullSync:full});
+  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession});
 }

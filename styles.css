@@ -15,3 +15,5 @@ details.legacy-tests>section{margin-top:1rem}
 /* Explicit asynchronous V1 consent, never a native popup. */
 .v1-full-sync-consent{border:2px solid #195b94;background:#f2f7ff}
 #approveV1FullSync{background:#195b94;color:#fff;border-color:#195b94}
+
+#approveV2Session{background:#195b94;color:#fff;border-color:#195b94}
