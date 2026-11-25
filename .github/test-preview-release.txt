@@ -10,3 +10,5 @@ Release attempt 3: wait for Actions artifact availability before Pages deploy.
 2026-11-25 TEST hotfix: Graph fail-on-existing PUT small-file path with independent SHA256/eTag readback; fail closed on 403/409/500.
 
 2026-11-25 retry with per-attempt unique Pages artifact; release includes no-overwrite V1 Graph small file upload fix.
+
+2026-11-25 TEST deploy: unique artifact plus metadata convergence wait; same no-overwrite Graph V1 fix.
