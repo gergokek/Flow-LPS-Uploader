@@ -2,6 +2,7 @@ import {ACTIVE_NAME,BASELINE_NAME,V0_NAME,MAX_DRAFT_BYTES,
  sha256,hex,stable,inspectV0,newSessionClaim,makeBaseline,inspectRevision,
  makeNextDraft,revisionName} from './single-draft-session-core.js';
 import {describeV1Approval,FREEZE_NAME,APPROVED_V1_NAME} from './single-draft-approval-core.js';
+import {inspectApprovedV1,makeV1SyncCheckpoint,SYNC_CHECKPOINT_FILE,APPROVAL_RECEIPT_FILE} from './single-approved-v1-sync-core.js';
 
 const safeDomains=['.sharepoint.com','.sharepointonline.com','.sharepoint-df.com',
  '.1drv.com','.blob.core.windows.net'];
@@ -366,5 +367,66 @@ export function createSingleDraftSessionStore({boardId,driveId,
    freezeSha256:freeze.sha256,receiptSha256:receipt.sha256,
    mondayWrites:0,mondaySyncAllowed:false,readOnlyBoard:true});
  }
- return Object.freeze({start,resume,append,readV0,reviewApproval,approve});
+ async function inspectApprovedSync({createdBy}={}){
+  check();
+  const current=await resume({allowFrozen:true});
+  const [approved,freeze,approvalReceipt,v0]=await Promise.all([
+   readFile(approvedPath(APPROVED_V1_NAME)),
+   readFile(draftPath(FREEZE_NAME)),
+   readFile(draftPath(APPROVAL_RECEIPT_FILE)),
+   readV0()
+  ]);
+  requireValid(approved&&freeze&&approvalReceipt,
+   'A jóváhagyott V1 és a hozzá tartozó két lezárási nyugta nem teljes.');
+  const verified=inspectApprovedV1({verified:current,approved,freeze,
+   approvalReceipt,v0,createdBy});
+  check();
+  return verified;
+ }
+ async function prepareApprovedSync({expectedApprovedSha256,createdBy,
+   editorId,boardVerifiedAt,boardFingerprintSha256}={}){
+  check();
+  const approved=await inspectApprovedSync({createdBy});
+  requireValid(approved.receipt.sha256===expectedApprovedSha256,
+   'Az Approved Plan V1 időközben megváltozott.');
+  const expectedBoardSha=await sha256(new TextEncoder().encode(
+   approved.sourceFingerprint));
+  requireValid(expectedBoardSha===boardFingerprintSha256,
+   'A Monday-board aktuális állapota nem a jóváhagyott V0 forrás.');
+  const token=await getMeAccessToken();
+  requireValid(typeof token==='string'&&!!token,
+   'Graph User.Read token szükséges a szinkron-előkészítéshez.');
+  const response=await fetcher('https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName',{
+   method:'GET',cache:'no-store',redirect:'error',
+   headers:{Authorization:'Bearer '+token,Accept:'application/json'}});
+  requireValid(response.ok,
+   'Microsoft Graph Entra identity HTTP '+response.status);
+  const me=await response.json();
+  requireValid(typeof createdBy==='string'&&
+   /^[0-9a-f-]{36}\.[0-9a-f-]{36}$/i.test(createdBy)&&
+   me?.id?.toLowerCase()===createdBy.split('.')[0].toLowerCase()&&
+   me.id.toLowerCase()===
+    approved.approvedPlan.finalization.microsoftEntraObjectId.toLowerCase(),
+   'A Microsoft felhasználó eltér az Approved Plan V1 jóváhagyójától.');
+  const prepared=makeV1SyncCheckpoint({verified:approved,editorId,
+   createdBy,at:now().toISOString(),boardVerifiedAt,
+   boardFingerprintSha256,microsoftEntraObjectId:me.id});
+  requireValid(await readFile(urlOf([...folder('Sync-Status'),SYNC_CHECKPOINT_FILE]))===null,
+   'Már létezik V1 szinkron-előkészítő fájl; nem próbáljuk felülírni.');
+  const saved=await createFile('Sync-Status',SYNC_CHECKPOINT_FILE,prepared);
+  const rechecked=await inspectApprovedSync({createdBy});
+  requireValid(rechecked.receipt.sha256===approved.receipt.sha256&&
+   rechecked.approvalReceiptSha256===approved.approvalReceiptSha256,
+   'Az Approved Plan V1 változott a checkpoint mentése közben.');
+  check();
+  return Object.freeze({
+   status:'PREPARED_NO_WRITES',boardId,planVersion:1,
+   approvedSha256:approved.receipt.sha256,
+   checkpoint:{name:saved.name,sha256:saved.sha256,eTag:saved.eTag,
+    id:saved.id,path:saved.path,verification:saved.verification},
+   mondayWrites:0,mutationAttempts:0,writeAuthorization:'NOT_GRANTED'
+  });
+ }
+ return Object.freeze({start,resume,append,readV0,reviewApproval,approve,
+  inspectApprovedSync,prepareApprovedSync});
 }
