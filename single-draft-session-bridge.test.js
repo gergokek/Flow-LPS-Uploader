@@ -7,7 +7,7 @@ const boardId='5107075373',
  sessionId='22222222-2222-4222-8222-222222222222',
  protocol='mflow-single-draft-session-v1';
 const ready=()=>{
- let handler,revCalls=0,approvalCalls=0;
+ let handler,revCalls=0,approvalCalls=0,syncCalls=0;
  const sent=[];
  const opener={postMessage:(payload,origin)=>sent.push({payload,origin})};
  const win={opener,location:{hash:'#mflow-session='+nonce+'&board='+boardId},
@@ -18,6 +18,13 @@ const ready=()=>{
    return {status:'SAVED',sessionId,revision:draft.version,
     receipt:{name:'draft-v1-r000001.json',sha256:'f'.repeat(64),
      eTag:'etag',verification:'content-sha256-and-etag'}};
+  },
+  onPrepareSync:async req=>{
+   syncCalls++;
+   return {status:'PREPARED_NO_WRITES',approvedSha256:req.expectedApprovedSha256,
+    checkpoint:{name:'sync-v1-prepared.json',sha256:'c'.repeat(64),
+     eTag:'sync-etag',verification:'content-sha256-and-etag'},
+    mondayWrites:0,writeAuthorization:'NOT_GRANTED'};
   },
   onApprovePlan:async req=>{
    approvalCalls++;
@@ -34,7 +41,8 @@ const ready=()=>{
    session:{sessionId,planVersion:1,revision:0}},
   receipt:{sha256:'a'.repeat(64),eTag:'origin',
    verification:'content-sha256-and-etag'}};
- return {bridge,emit,sent,selected,calls:()=>revCalls,approvalCalls:()=>approvalCalls};
+ return {bridge,emit,sent,selected,calls:()=>revCalls,approvalCalls:()=>approvalCalls,
+  syncCalls:()=>syncCalls};
 };
 test('refuses to send DRAFT before origin-bound hello',()=>{
  const a=ready();
@@ -89,5 +97,37 @@ test('Monday V1 approval rejects stale SHA and only accepts one verified request
   expectedSessionId:sessionId,expectedRevision:0,expectedSha256:'a'.repeat(64),
   boardFingerprintSha256,boardVerifiedAt:new Date().toISOString(),editorId:'96423073'});
  assert.equal(a.approvalCalls(),1);
+ a.bridge.close();
+});
+
+test('frozen Approved V1 can be handed off without starting a new DRAFT session',async()=>{
+ const a=ready();a.emit('hello');
+ const source='d'.repeat(64),sha='b'.repeat(64);
+ assert.equal(a.bridge.approvedForSync({
+  status:'APPROVED_V1_VERIFIED',boardId,sessionId,planVersion:1,revision:4,
+  receipt:{name:'approved-v1.json',sha256:sha,eTag:'etag',
+   verification:'content-sha256-and-etag'},
+  sourceDraftSha256:source,
+  approvedPlan:{sourceDraft:{sha256:source}},
+  mondayWrites:0,mondaySyncAllowed:false
+ }),true);
+ assert.equal(a.bridge.session(),null);
+ assert.ok(a.sent.some(x=>x.payload.kind==='approved-sync-selected'&&
+  x.payload.receipt.sha256===sha));
+ const requestId='55555555-5555-4555-8555-555555555555';
+ const args={requestId,expectedApprovedSha256:sha,
+  expectedSessionId:sessionId,expectedRevision:4,
+  boardFingerprintSha256:'f'.repeat(64),
+  boardVerifiedAt:new Date().toISOString(),editorId:'96423073'};
+ await a.emit('prepare-sync-checkpoint',{...args,expectedApprovedSha256:'a'.repeat(64)});
+ assert.equal(a.syncCalls(),0);
+ await a.emit('prepare-sync-checkpoint',args,'https://forged.example');
+ assert.equal(a.syncCalls(),0);
+ await a.emit('prepare-sync-checkpoint',args);
+ assert.equal(a.syncCalls(),1);
+ assert.ok(a.sent.some(x=>x.payload.kind==='sync-checkpoint-stored'&&
+  x.payload.mondayWrites===0&&x.payload.writeAuthorization==='NOT_GRANTED'));
+ await a.emit('prepare-sync-checkpoint',{...args,requestId:'66666666-6666-4666-8666-666666666666'});
+ assert.equal(a.syncCalls(),1);
  a.bridge.close();
 });
