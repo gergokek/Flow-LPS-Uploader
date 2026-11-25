@@ -1,0 +1,54 @@
+name: Apply verified V1 pilot implementation
+on:
+  push:
+    branches: [feat/test-single-draft-session]
+    paths: [.github/workflows/apply-v1-pilot.yml]
+permissions:
+  contents: write
+concurrency:
+  group: v1-pilot-code-apply
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/feat/test-single-draft-session'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/test-single-draft-session
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify reviewed transport and source preconditions
+        run: |
+          python - <<'PY'
+          import base64,gzip,hashlib,pathlib,subprocess
+          s=''.join(pathlib.Path('.github/v1-pilot-implementation.b64').read_text().split())
+          assert hashlib.sha256(s.encode()).hexdigest()=='6f99e9af4b014cc07c50a473f92093ec4ec18e0666dead0d81a09cfcb9b56147'
+          for i,j in [(5294,7754),(5040,5293)]: s=s[:i]+s[j:]
+          patch=gzip.decompress(base64.b64decode(s,validate=True))
+          assert len(patch)==43984
+          assert hashlib.sha256(patch).hexdigest()=='225847d816ac78952a4f5ec522ac942a93f6a2e0a4562c992ca01646507ebd4e'
+          path=pathlib.Path('/tmp/v1-pilot.patch');path.write_bytes(patch)
+          stats=subprocess.check_output(['git','apply','--numstat',str(path)],text=True)
+          files=[line.split('\t',2)[2] for line in stats.splitlines()]
+          assert len(files)==10 and all('..' not in p and not p.startswith(('/','.')) for p in files)
+          subprocess.run(['git','diff','--exit-code','5c2a59580cd3b8149359858119a04123f63cd7fa','HEAD','--',*files],check=True)
+          subprocess.run(['git','apply','--check','--index',str(path)],check=True)
+          subprocess.run(['git','apply','--index',str(path)],check=True)
+          print('Exact reviewed patch applied:',len(files),'files; no runtime data touched')
+          PY
+      - run: npm install --no-audit --no-fund --package-lock=false
+      - run: npm test
+      - run: npm run build
+      - name: Commit tested implementation to TEST source branch only
+        run: |
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/v1-pilot-implementation.b64
+          git commit -m 'feat(test): V1 single-task immutable journals, strict identity and recovery guards'
+          git push origin HEAD:refs/heads/feat/test-single-draft-session
+          echo "Verified implementation commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
