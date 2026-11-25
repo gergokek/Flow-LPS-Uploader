@@ -90,31 +90,35 @@ export function createSingleDraftSessionStore({boardId,driveId,
   requireValid(exists.status===404,
    exists.ok?'A verzió már létezik; felülírás tiltva.':
    'A fájl létezése nem ellenőrizhető: '+exists.status);
-  const parent=await folderMeta(folderName);
-  const session=await request('/items/'+encodeURIComponent(parent.id)+':/'+
-   encodeURIComponent(name)+':/createUploadSession',{
-   method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({item:{name,'@microsoft.graph.conflictBehavior':'fail'}})
-  });
-  requireValid(session.ok,'Konfliktusvédett SharePoint feltöltés nem indítható.');
-  const info=await session.json();
-  const link=safeUrl(info?.uploadUrl);
-  requireValid(Number.isFinite(Date.parse(info?.expirationDateTime))&&
-   Date.parse(info.expirationDateTime)>Date.now(),
-   'Lejárt vagy ismeretlen SharePoint feltöltési munkamenet.');
-  check();
+  // Files are capped at 5 MB. The small-file Graph API supports atomic
+  // create with conflictBehavior=fail, avoiding an intermediate upload session
+  // while preserving the invariant that an existing claim can never be replaced.
+  // 200 OK is never accepted for new files: only 201 Created is a valid proof.
+  await folderMeta(folderName);
   let item;
   try{
-   const response=await fetcher(link,{method:'PUT',mode:'cors',redirect:'error',
-    cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer',
-    headers:{'Content-Type':'application/octet-stream',
-     'Content-Range':'bytes 0-'+(data.byteLength-1)+'/'+data.byteLength},
-    body:data});
-   requireValid(response.status===201,
-    'Nem új SharePoint fájl jött létre: HTTP '+response.status);
+   const response=await request(path+':/content?%40microsoft.graph.conflictBehavior=fail',{
+    method:'PUT',headers:{'Content-Type':'application/octet-stream'},
+    body:data
+   });
+   if(response.status!==201){
+    let code='';
+    try{
+     const error=await response.json();
+     if(/^[A-Za-z0-9_.:-]{1,64}$/.test(error?.error?.code||''))
+      code=' / '+error.error.code;
+    }catch{/* Do not leak response bodies, tokens, or temporary URLs. */}
+    const hint=response.status===401||response.status===403?
+     ' Ellenőrizd az Entra Sites.Selected és a SharePoint írási engedélyt.':
+     response.status===409||response.status===412?
+     ' A fájl már létezhet; felülírás nem engedélyezett.':'';
+    throw Error('SharePoint DRAFT létrehozás HTTP '+response.status+code+'.'+hint);
+   }
    item=await response.json();
-  }catch(error){throw Error('A SharePoint-írás bizonytalan. NE próbáld újra automatikusan; '+
-    'ellenőrizd a fájlt: '+(error?.message||error));}
+  }catch(error){
+   throw Error('A SharePoint-írás nem igazolt. Nincs automatikus újrapróbálás; '+
+    'előbb ellenőrizd a fájlt. '+(error?.message||error));
+  }
   requireValid(item?.name===name&&!!item.id&&item.size===data.byteLength&&
    !!item.file,'A SharePoint feltöltés válasza nem hitelesíthető.');
   const result=await readFile(path);
