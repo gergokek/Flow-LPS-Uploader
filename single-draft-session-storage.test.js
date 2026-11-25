@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
-import {fingerprint} from './single-draft-session-core.js';
+import {fingerprint,stable} from './single-draft-session-core.js';
 
 const boardId='5107075373',driveId='b!testdrive',
  sessionId='11111111-1111-4111-8111-111111111111';
@@ -115,7 +115,9 @@ test('resume independently re-reads all versions and append writes only V1.1',as
  prepared.version=1;
  prepared.history.push({revision:1,type:'edit',at:'2026-11-24T00:00:00Z'});
  prepared.working[0].note='Updated';
- const saved=await g.store.append({updatedDraft:prepared,
+ // Monday serializes drafts canonically, reordering JSON object properties.
+ // The recovered revision must be compared by content, NOT property order.
+ const saved=await g.store.append({updatedDraft:JSON.parse(stable(prepared)),
   expectedSessionId:sessionId,expectedParentSha256:first.receipt.sha256});
  assert.equal(saved.versionLabel,'V1.1');
  assert.equal(saved.revision,1);
@@ -173,4 +175,50 @@ test('duplicate immutable filename is never overwritten even after concurrent pr
  await assert.rejects(g.store.start({createdBy:'entra-user'}),/már tartozik aktív/);
  assert.deepEqual(g.files.get('Draft-Plans/active-session.json').content,prior);
  assert.equal(first.claimReceipt.verification,'content-sha256-and-etag');
+});
+
+test('a real Monday-serialized V1.1 can be resumed and appended to V1.2',async()=>{
+ const g=fakeGraph(),v1=await g.store.start({createdBy:'entra-user'});
+ const first=structuredClone(v1.draft);first.version=1;
+ first.history.push({revision:1,type:'edit',at:'2026-11-25T09:17:48.180Z'});
+ first.working[0].note='First change';
+ const saved1=await g.store.append({
+  updatedDraft:JSON.parse(stable(first)),
+  expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
+ assert.equal(saved1.revision,1);
+ const resumed=await g.store.resume();
+ assert.equal(resumed.revision,1);
+ assert.equal(resumed.draft.working[0].note,'First change');
+ assert.notDeepEqual(Object.keys(resumed.draft.base),Object.keys(v1.draft.base));
+ const candidate=structuredClone(resumed.draft);
+ candidate.version=2;
+ candidate.history.push({revision:2,type:'weekly',at:'2026-11-25T09:20:00.000Z'});
+ candidate.working[0].status='Candidate';
+ candidate.working[0].week='2026-W48';
+ candidate.working[0].ledger=[{week:'2026-W48',status:'candidate',
+  updatedAt:'2026-11-25T09:20:00.000Z'}];
+ const saved2=await g.store.append({
+  updatedDraft:JSON.parse(stable(candidate)),
+  expectedSessionId:sessionId,expectedParentSha256:saved1.receipt.sha256});
+ assert.equal(saved2.versionLabel,'V1.2');
+ const recovered=await g.store.resume();
+ assert.equal(recovered.versionLabel,'V1.2');
+ assert.equal(recovered.draft.working[0].status,'Candidate');
+ assert.equal(recovered.draft.history.length,2);
+ assert.equal(g.counters.uploads,4);
+});
+test('an actually changed base field still blocks V1.2, regardless of key ordering',async()=>{
+ const g=fakeGraph(),v1=await g.store.start({createdBy:'entra-user'});
+ const first=structuredClone(v1.draft);first.version=1;
+ first.history.push({revision:1,type:'edit',at:'2026-11-25T09:17:48.180Z'});
+ first.working[0].note='First change';
+ const saved=await g.store.append({updatedDraft:JSON.parse(stable(first)),
+  expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
+ const edited=structuredClone(saved.draft);
+ edited.version=2;edited.history.push({revision:2,type:'weekly',at:'2026-11-25T09:22:00.000Z'});
+ edited.base.tasks[0].note='tampered source';
+ await assert.rejects(g.store.append({updatedDraft:JSON.parse(stable(edited)),
+  expectedSessionId:sessionId,expectedParentSha256:saved.receipt.sha256}),
+  /kiinduló állapotát/);
+ assert.equal(g.counters.uploads,3);
 });
