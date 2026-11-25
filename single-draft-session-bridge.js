@@ -4,8 +4,9 @@
 export const SINGLE_DRAFT_PROTOCOL='mflow-single-draft-session-v1';
 const uuid=s=>typeof s==='string'&&/^[a-f0-9-]{36}$/i.test(s);
 export function attachSingleDraftSessionBridge({win=window,
- onSaveRevision=async()=>{},onStatus=()=>{}}={}){
- if(typeof onSaveRevision!=='function'||typeof onStatus!=='function'||
+ onSaveRevision=async()=>{},onApprovePlan=async()=>{},onStatus=()=>{}}={}){
+ if(typeof onSaveRevision!=='function'||typeof onApprovePlan!=='function'||
+    typeof onStatus!=='function'||
     !win||typeof win.addEventListener!=='function')
   throw Error('Érvénytelen TEST munkamenet-átadás.');
  const p=new URLSearchParams((win.location.hash||'').replace(/^#/,''));
@@ -13,7 +14,7 @@ export function attachSingleDraftSessionBridge({win=window,
  if(!uuid(nonce)||boardId!=='5107075373'||!win.opener)
   return Object.freeze({active:false,ready:false,close:()=>{},
    selected:()=>false,saved:()=>false,failed:()=>false});
- let origin=null,closed=false,selectedSession=null,working=false;
+ let origin=null,closed=false,selectedSession=null,working=false,approved=false;
  const emit=(kind,extras={})=>{
   if(closed||!origin||!win.opener)return false;
   try{win.opener.postMessage({protocol:SINGLE_DRAFT_PROTOCOL,
@@ -28,7 +29,7 @@ export function attachSingleDraftSessionBridge({win=window,
    if(origin&&origin!==event.origin)return;
    origin=event.origin;emit('ready');onStatus('ready');return;
   }
-  if(!origin||event.origin!==origin||working||!selectedSession)return;
+  if(!origin||event.origin!==origin||working||!selectedSession||approved)return;
   if(event.data.kind==='save-revision'){
    const draft=event.data.draft,requestId=event.data.requestId;
    if(!uuid(requestId)||!draft||typeof draft!=='object'||
@@ -44,13 +45,49 @@ export function attachSingleDraftSessionBridge({win=window,
        !/^[a-f0-9]{64}$/.test(result.receipt?.sha256||'')||
        !result.receipt.eTag)
      throw Error('Nem igazolt a DRAFT mentése.');
-    selectedSession={...selectedSession,revision:result.revision};
+    selectedSession={...selectedSession,revision:result.revision,sha256:result.receipt.sha256};
     emit('revision-saved',{requestId,revision:result.revision,
      receipt:{sha256:result.receipt.sha256,eTag:result.receipt.eTag,
       name:result.receipt.name,verification:result.receipt.verification}});
     onStatus('saved');
    }catch(error){
     emit('revision-failed',{requestId,message:String(error?.message||error).slice(0,300)});
+    onStatus('blocked');
+   }finally{working=false;}
+  }else if(event.data.kind==='approve-plan'){
+   const x=event.data;
+   if(!uuid(x.requestId)||x.expectedSessionId!==selectedSession.sessionId||
+      x.expectedRevision!==selectedSession.revision||
+      x.expectedSha256!==selectedSession.sha256||
+      !/^[a-f0-9]{64}$/.test(x.boardFingerprintSha256||'')||
+      typeof x.boardVerifiedAt!=='string'||
+      !/^\d+$/.test(x.editorId||''))return;
+   working=true;
+   try{
+    const result=await onApprovePlan({
+     expectedSessionId:x.expectedSessionId,
+     expectedRevision:x.expectedRevision,
+     expectedSha256:x.expectedSha256,
+     boardFingerprintSha256:x.boardFingerprintSha256,
+     boardVerifiedAt:x.boardVerifiedAt,editorId:x.editorId,
+     requestId:x.requestId});
+    if(result?.status!=='APPROVED_PLAN_V1_STORED'||
+       result.sessionId!==selectedSession.sessionId||
+       result.revision!==selectedSession.revision||
+       result.finalDraftSha256!==selectedSession.sha256||
+       !/^[a-f0-9]{64}$/.test(result.approvedPlan?.sha256||'')||
+       !result.approvedPlan?.eTag||result.mondayWrites!==0)
+     throw Error('Nem igazolt az Approved Plan V1 véglegesítése.');
+    approved=true;
+    emit('approval-stored',{requestId:x.requestId,revision:result.revision,
+     finalDraftSha256:result.finalDraftSha256,
+     approvedPlan:result.approvedPlan,
+     receiptSha256:result.receiptSha256,
+     mondayWrites:0,mondaySyncAllowed:false});
+    onStatus('approved');
+   }catch(error){
+    emit('approval-failed',{requestId:x.requestId,
+     message:String(error?.message||error).slice(0,350)});
     onStatus('blocked');
    }finally{working=false;}
   }
@@ -60,7 +97,7 @@ export function attachSingleDraftSessionBridge({win=window,
  try{win.opener.postMessage({protocol:SINGLE_DRAFT_PROTOCOL,
   kind:'ready',nonce,boardId},'*');}catch{/* User can retry opening. */}
  function selected(verified){
-  if(closed||!origin||working||selectedSession||verified?.status!=='ACTIVE'||
+  if(closed||!origin||working||approved||selectedSession||verified?.status!=='ACTIVE'||
      verified.boardId!==boardId||!uuid(verified.sessionId)||
      !Number.isSafeInteger(verified.revision)||verified.revision<0||
      verified.draft?.session?.sessionId!==verified.sessionId||
@@ -73,7 +110,8 @@ export function attachSingleDraftSessionBridge({win=window,
    draft:structuredClone(verified.draft),
    receipt:{sha256:verified.receipt.sha256,eTag:verified.receipt.eTag,
     name:verified.receipt.name,verification:verified.receipt.verification}});
-  if(sent)selectedSession={sessionId:verified.sessionId,revision:verified.revision};
+  if(sent)selectedSession={sessionId:verified.sessionId,revision:verified.revision,
+   sha256:verified.receipt.sha256};
   return sent;
  }
  const close=()=>{closed=true;win.removeEventListener('message',handler);};
