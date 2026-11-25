@@ -228,14 +228,15 @@ test('an actually changed base field still blocks V1.2, regardless of key orderi
 });
 
 test('V1.1 review is read-only; Approve creates immutable Approved Plan V1 with verified receipt',async()=>{
- const g=fakeGraph(),v1=await g.store.start({createdBy:'entra-user'});
+ const homeAccountId='22222222-2222-4222-8222-222222222222.816099a1-2aff-441c-b4ef-9c3a405ac2fa';
+ const g=fakeGraph(),v1=await g.store.start({createdBy:homeAccountId});
  const edit=structuredClone(v1.draft);edit.version=1;
  edit.history.push({revision:1,type:'edit',at:'2026-11-25T09:30:00.000Z'});
  edit.working[0].note='approved change';
  const saved=await g.store.append({updatedDraft:JSON.parse(stable(edit)),
   expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
  const args={expectedSessionId:sessionId,expectedRevision:1,
-  expectedSha256:saved.receipt.sha256,createdBy:'entra-user',editorId:'96423073'};
+  expectedSha256:saved.receipt.sha256,createdBy:homeAccountId,editorId:'96423073'};
  const before=g.counters.uploads;
  const review=await g.store.reviewApproval(args);
  assert.equal(review.status,'V1_APPROVAL_REVIEWED');
@@ -275,14 +276,15 @@ test('V1.1 review is read-only; Approve creates immutable Approved Plan V1 with 
  assert.equal(g.counters.uploads,before+3);
 });
 test('approval rejects old board proof, stale revision, changed identity with no freeze',async()=>{
- const g=fakeGraph(),v1=await g.store.start({createdBy:'entra-user'});
+ const homeAccountId='22222222-2222-4222-8222-222222222222.816099a1-2aff-441c-b4ef-9c3a405ac2fa';
+ const g=fakeGraph(),v1=await g.store.start({createdBy:homeAccountId});
  const edit=structuredClone(v1.draft);edit.version=1;
  edit.history.push({revision:1,type:'edit',at:'2026-11-25T09:31:00.000Z'});
  edit.working[0].note='changed';
  const saved=await g.store.append({updatedDraft:edit,
   expectedSessionId:sessionId,expectedParentSha256:v1.receipt.sha256});
  const args={expectedSessionId:sessionId,expectedRevision:1,
-  expectedSha256:saved.receipt.sha256,createdBy:'entra-user',editorId:'96423073',
+  expectedSha256:saved.receipt.sha256,createdBy:homeAccountId,editorId:'96423073',
   boardVerifiedAt:new Date().toISOString(),
   boardFingerprintSha256:await sha256(new TextEncoder().encode(
    fingerprint(g.v0.plan.base)))};
