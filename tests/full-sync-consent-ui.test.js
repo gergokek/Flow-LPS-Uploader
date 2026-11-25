@@ -107,3 +107,26 @@ test('UI module has no network, popup or HTML-string execution',()=>{
  const source=readFileSync(new URL('../full-sync-consent-ui.js',import.meta.url),'utf8');
  assert.doesNotMatch(source,/\bfetch\s*\(|\.confirm\s*\(|\.innerHTML\s*=|\.open\s*\(|accessToken/);
 });
+
+test('reconciliation consent displays exact before/observed strings and never auto-accepts',async()=>{
+ const f=fixture();f.args.report={...f.args.report,status:'RECONCILIATION_AVAILABLE',reconciliation:{
+  step:2,taskId:'102',taskName:'Synthetic task',approvedNote:'Note ',observedNote:'Note',sha256:'a'.repeat(64)}};
+ const p=requestV1FullSyncConsent(f.args);await Promise.resolve();
+ const panel=f.host.children[0];assert.ok(panel.children[2].textContent.includes(JSON.stringify('Note ')));
+ assert.ok(panel.children[2].textContent.includes(JSON.stringify('Note')));
+ assert.match(panel.children[2].textContent,/NEM/);
+ assert.match(panel.children[3].textContent,/elteres elfogadasa/);
+ f.buttons().cancel.click();assert.equal(await p,false);
+});
+
+test('missing recovery description fails before offering consent',async()=>{
+ const f=fixture();f.args.report.status='RECONCILIATION_AVAILABLE';
+ await assert.rejects(requestV1FullSyncConsent(f.args),/pontos leirasa/);assert.equal(f.host.children.length,0);
+});
+test('accepted inline recovery binds the exact candidate hash into begin',async()=>{
+ const f=actionFixture();f.args.report.status='RECONCILIATION_AVAILABLE';
+ f.args.report.reconciliation={step:2,taskId:'102',taskName:'Synthetic',approvedNote:'Note ',observedNote:'Note',sha256:'c'.repeat(64)};
+ let bound;f.options.full.begin=async args=>{bound=args;return {remainingTaskCount:49};};
+ const p=beginV1FullSyncWithConsent(f.options);await Promise.resolve();f.buttons().approve.click();await p;
+ assert.equal(bound.acceptedReconciliationSha256,'c'.repeat(64));assert.equal(bound.userConfirmed,true);
+});

@@ -11,11 +11,16 @@ export function requestV1FullSyncConsent({host,report,isCurrent,win=globalThis.w
     !win?.setInterval||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>300000)
   return Promise.reject(Error('Hibas V1 megerositesi felulet.'));
  const verified=report?.verifiedTaskCount,remaining=report?.remainingTaskCount,total=report?.changedTaskCount;
- if(!['READY_TO_SYNC','READY_TO_CLOSE'].includes(report?.status)||
+ if(!['READY_TO_SYNC','READY_TO_CLOSE','RECONCILIATION_AVAILABLE'].includes(report?.status)||
     ![verified,remaining,total].every(Number.isSafeInteger)||verified<1||remaining<0||
     total!==verified+remaining||(report.status==='READY_TO_SYNC'&&remaining===0)||
     (report.status==='READY_TO_CLOSE'&&remaining!==0))
   return Promise.reject(Error('Nem igazolt a teljes V1 megerositesi osszesito.'));
+ const recovery=report.reconciliation;
+ if(report.status==='RECONCILIATION_AVAILABLE'&&(!recovery||remaining<1||
+    typeof recovery.approvedNote!=='string'||typeof recovery.observedNote!=='string'||
+    recovery.approvedNote===recovery.observedNote||!/^[a-f0-9]{64}$/.test(recovery.sha256||'')))
+  return Promise.reject(Error('Hianyzik a megjegyzes-elteres pontos leirasa.'));
  if(pendingHosts.has(host))return Promise.reject(Error('Mar van fuggoben V1 megerosites.'));
  try{assertCurrent(isCurrent);}catch(error){return Promise.reject(error);}
  const panel=doc.createElement('section'),heading=doc.createElement('h3'),summary=doc.createElement('p'),
@@ -35,6 +40,16 @@ export function requestV1FullSyncConsent({host,report,isCurrent,win=globalThis.w
   'a feladatokat nem \u00edrjuk \u00fajra. Mindk\u00e9t ablak maradjon nyitva.';
  approve.type=cancel.type='button';approve.id='approveV1FullSync';cancel.id='cancelV1FullSync';
  approve.textContent=remaining>0?'Teljes V1 vissza\u00edr\u00e1s j\u00f3v\u00e1hagy\u00e1sa':'V1 lez\u00e1r\u00e1s j\u00f3v\u00e1hagy\u00e1sa';
+ if(recovery){
+  warning.textContent='Egy korabban visszaigazolt iras megjegyzeseben a visszaolvasott ertekbol hianyzik a szoveg vegi ASCII szokoz. '+
+   'Feladat: '+recovery.taskName+' (#'+recovery.taskId+'). '+
+   'Jovahagyott szoveg: '+JSON.stringify(recovery.approvedNote)+' ('+recovery.approvedNote.length+' karakter); '+
+   'tenyleges: '+JSON.stringify(recovery.observedNote)+' ('+recovery.observedNote.length+' karakter). '+
+   'Ezt az egy elterest fogadod el kulon egyeztetesi nyugtaval; az eredeti Approved terv es naplok megmaradnak. '+
+   'A feladatot NEM irjuk ujra. Ezutan '+(remaining-1)+' tovabbi feladat visszairasa kovetkezik. '+
+   'Minden mas mezo es a teljes board pontos egyezese kotelezo. Mindket ablak maradjon nyitva.';
+  approve.textContent='Megjegyzes-elteres elfogadasa es a teljes szinkron folytatasa';
+ }
  cancel.textContent='M\u00e9gse \u2013 ne induljon \u00edr\u00e1s';
  panel.append(heading,summary,warning,approve,cancel);pendingHosts.add(host);
  return new Promise((resolve,reject)=>{
@@ -78,7 +93,7 @@ export async function beginV1FullSyncWithConsent({full,args,host,output,isCurren
   if(!accepted)throw Error('A teljes V1 inditasa az Uploader Megse gombjaval megszakitva. Ebben a futasban nem tortent iras.');
   assertCurrent(isCurrent);
   // Existing store re-reads the immutable plan and journal chain after consent.
-  const result=await full.begin({...args,userConfirmed:true});assertCurrent(isCurrent);
+  const result=await full.begin({...args,userConfirmed:true,acceptedReconciliationSha256:report.reconciliation?.sha256??null});assertCurrent(isCurrent);
   output.textContent='Teljes V1 szinkron engedelyezve. Hatravan: '+result.remainingTaskCount+
    ' feladat. Automatikus naplozas; az ablak maradjon nyitva.';
   return result;

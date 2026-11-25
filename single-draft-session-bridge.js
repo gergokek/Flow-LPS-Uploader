@@ -37,7 +37,7 @@ export function attachSingleDraftSessionBridge({win=window,
   if(event.data.kind==='v1-pilot-request'&&approvedForSyncState){
    const x=event.data;
    if(!uuid(x.requestId)||pilotSeen.has(x.requestId)||
-      !['inspect','ahead','result','full-inspect','full-begin','full-ahead','full-result','full-finish'].includes(x.action)||
+      !['inspect','ahead','result','full-inspect','full-begin','full-reconcile','full-ahead','full-result','full-finish'].includes(x.action)||
       x.expectedApprovedSha256!==approvedForSyncState.sha256||
       x.expectedSessionId!==approvedForSyncState.sessionId||
       x.expectedRevision!==approvedForSyncState.revision)return;

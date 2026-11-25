@@ -1,7 +1,7 @@
 import {PILOT_BOARD,pilotAssert as ok,pilotStable as stable,
  pilotFileSha,pilotHex,pilotUuid} from './v1-pilot-contract.js';
 import {FULL_FINAL,stepName,syncCommon,inspectFullSyncEvidence,requireFreshBoard,
- validateStepAhead,validateStepResult} from './v1-full-sync-contract.js';
+ validateStepAhead,validateStepResult,recoverySummary,validateNoteReconciliation} from './v1-full-sync-contract.js';
 
 // Only verified create-only storage is injected. No Monday writer exists here.
 // Unique step filenames serialize competing popups without overwriting a journal.
@@ -29,7 +29,7 @@ export function createV1FullSyncStore({inspectPilot,readSync,listSync,createSync
    const batch=listed.slice(offset,offset+4);
    const files=await Promise.all(batch.map(item=>readSync(item.name)));
    for(let i=0;i<batch.length;i++){
-    const item=batch[i],file=files[i],match=/^sync-v1-step-(\d{6})-(ahead|result)\.json$/.exec(item.name);
+    const item=batch[i],file=files[i],match=/^sync-v1-step-(\d{6})-(ahead|result|reconciliation)\.json$/.exec(item.name);
     ok(match&&Number(match[1])>=2,'Ismeretlen vagy hibas V1 szinkronnaplo.');
     const step=Number(match[1]),kind=match[2],row=steps.get(step)||{step,ahead:null,result:null};
     ok(!row[kind],'Duplikalt V1 szinkronnaplo.');
@@ -46,21 +46,23 @@ export function createV1FullSyncStore({inspectPilot,readSync,listSync,createSync
    listing,at:now().getTime()};
   return {status:state.status,evidence,verifiedTaskCount:state.verifiedTaskCount,
    remainingTaskCount:state.remainingTaskCount,changedTaskCount:state.model.changedTaskCount,
-   ledgerSha256:state.ledgerSha256,checkedAt:now().toISOString(),readOnly:true};
+   reconciliation:recoverySummary(state.recovery),ledgerSha256:state.ledgerSha256,checkedAt:now().toISOString(),readOnly:true};
  }
  async function begin({createdBy,userConfirmed,...request}={}){
   ok(userConfirmed===true&&pilotUuid(request.executionId)&&!session,
    'A teljes szinkron nincs megerositve vagy mar fut.');
   const report=await inspect({createdBy,editorId:request.editorId});
   const state=await inspectFullSyncEvidence(report.evidence,request.editorId,now().getTime());
-  ok(['READY_TO_SYNC','READY_TO_CLOSE','V1_SYNC_COMPLETED'].includes(state.status),
+  ok(['READY_TO_SYNC','READY_TO_CLOSE','V1_SYNC_COMPLETED','RECONCILIATION_AVAILABLE'].includes(state.status),
    'V1 naplo bizonytalan; nincs folytatas.');
   // begin is read-only: user consent is for this immutable plan/ledger. Monday
   // refreshes the board after consent. Each actual ahead/finish enforces freshness.
   ok(request.expectedApprovedSha256===state.model.pilot.approvedSha256&&
    request.expectedCheckpointSha256===state.model.pilot.checkpointSha256&&
    request.ledgerSha256===state.ledgerSha256,'A jovahagyott V1 terv vagy naplosor megvaltozott.');
-  session={id:request.executionId,createdBy,editorId:request.editorId,
+  ok((request.acceptedReconciliationSha256??null)===(state.recovery?.sha256??null),
+   'A megjegyzes pontos eltereset kulon fel kell tuntetni es elfogadni.');
+  session={acceptedReconciliationSha256:state.recovery?.sha256??null,id:request.executionId,createdBy,editorId:request.editorId,
    evidence:structuredClone(report.evidence),state,inFlight:null,spent:new Set(),blocked:false,
    expires:now().getTime()+60*60*1000};
   return structuredClone({...report,executionId:session.id});
@@ -76,6 +78,37 @@ export function createV1FullSyncStore({inspectPilot,readSync,listSync,createSync
   ok(r&&r.createdBy===s.createdBy&&r.editorId===s.editorId&&
    now().getTime()-r.at<=120000&&r.state.ledgerSha256===s.state.ledgerSha256,
    'Friss teljes SharePoint-naploellenorzes szukseges.');return r;
+ }
+ async function reconcile(request={}){
+  const s=current(request);
+  try{
+   ok(!s.inFlight&&s.state.status==='RECONCILIATION_AVAILABLE'&&!s.spent.has('reconcile'),
+    'Nincs uj egyeztetesre engedelyezett megjegyzes.');
+   s.spent.add('reconcile');
+   const report=await inspect({createdBy:s.createdBy,editorId:s.editorId});
+   const r=lastInspection,c=r.state.recovery;
+   ok(c&&c.sha256===s.acceptedReconciliationSha256&&c.sha256===request.recoverySha256&&
+    r.state.ledgerSha256===s.state.ledgerSha256,'A jovahagyott egyeztetesi alap megvaltozott.');
+   requireFreshBoard(request,r.state,now().getTime());
+   let rawNote;try{rawNote=JSON.parse(request.rawNoteValue);}catch{throw Error('Hibas nyers note visszaolvasas.');}
+   ok(request.noteText===c.observedNote&&rawNote===c.observedNote&&
+    request.itemReadbackSha256===c.observedItemSha256,'A megjegyzes nyers tartalma elter.');
+   await checkPinned(report.evidence,s.createdBy);
+   ok(r.listing===catalog(await list()),'A naplolista az egyeztetes elott megvaltozott.');
+   requireFreshBoard(request,r.state,now().getTime());
+   const {observedFingerprint,sha256,...binding}=c;
+   const document={...binding,format:'mflow-v1-sync-reconciliation',status:'NOTE_REPRESENTATION_ACCEPTED',
+    candidateSha256:sha256,userConfirmed:true,approvedExactMatch:false,
+    executionId:s.id,requestId:request.requestId,newMutationAttempts:0,historicalMutationAttempts:1,
+    noteText:request.noteText,rawNoteValue:request.rawNoteValue,fullBoardReadbackMatches:true,
+    checkedAt:request.boardVerifiedAt,createdAt:now().toISOString(),automaticallyRetryable:false};
+   const receipt=await createSync(stepName(c.step,'reconciliation'),document),pair={document,receipt};
+   await validateNoteReconciliation(pair,c,now().getTime());
+   s.evidence=structuredClone(report.evidence);s.evidence.records.at(-1).reconciliation=pair;
+   s.state=await inspectFullSyncEvidence(s.evidence,s.editorId,now().getTime());
+   ok(['READY_TO_SYNC','READY_TO_CLOSE'].includes(s.state.status),'Az egyeztetes nem oldotta fel a megallast.');
+   return structuredClone(pair);
+  }catch(error){s.blocked=true;throw error;}
  }
  async function ahead(request={}){
   const s=current(request);
@@ -96,7 +129,7 @@ export function createV1FullSyncStore({inspectPilot,readSync,listSync,createSync
     'Eltero vagy mar elkezdett V1 lepes.');
    s.spent.add('ahead:'+t.step);
    await checkPinned(s.evidence,s.createdBy);check();
-   const last=s.evidence.records.at(-1)?.result||s.evidence.result;
+   const row=s.evidence.records.at(-1),last=row?.reconciliation||row?.result||s.evidence.result;
    const prior=wrap(await readSync(last.receipt.name));
    ok(prior?.receipt.sha256===s.state.previousResultSha256&&prior.receipt.eTag===last.receipt.eTag,
     'A legutobbi igazolt V1 eredmeny megvaltozott.');
@@ -146,6 +179,8 @@ export function createV1FullSyncStore({inspectPilot,readSync,listSync,createSync
    const document={...syncCommon(state.model.pilot),format:'mflow-v1-sync-final',status:'V1_SYNC_COMPLETED',
     verifiedTaskCount:state.verifiedTaskCount,totalTaskCount:state.model.taskCount,remainingTaskCount:0,
     ledgerSha256:state.ledgerSha256,lastResultSha256:state.previousResultSha256,
+    approvedExactMatch:state.model.reconciliations.length===0,
+    approvedFinalBoardSha256:state.model.approvedFinalBoardSha256,reconciliations:state.model.reconciliations,
     boardReadbackSha256:state.model.finalBoardSha256,fullBoardReadbackMatches:true,
     checkedAt:request.boardVerifiedAt,createdAt:now().toISOString(),automaticallyRetryable:false};
    const receipt=await createSync(FULL_FINAL,document),pair={document,receipt};
@@ -154,5 +189,5 @@ export function createV1FullSyncStore({inspectPilot,readSync,listSync,createSync
    s.blocked=true;return structuredClone(pair);
   }catch(error){s.blocked=true;throw error;}
  }
- return Object.freeze({inspect,begin,ahead,result,finish});
+ return Object.freeze({inspect,begin,reconcile,ahead,result,finish});
 }

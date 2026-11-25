@@ -4,7 +4,7 @@ import {PILOT_BOARD,PILOT_FIELDS,pilotAssert as ok,pilotStable as stable,
  checkPilotFile,inspectPilotEvidence} from './v1-pilot-contract.js';
 export const FULL_FINAL='sync-v1-completed.json';
 export function stepName(step,kind){
- ok(Number.isSafeInteger(step)&&step>=2&&step<=999999&&['ahead','result'].includes(kind),'Invalid V1 journal name.');
+ ok(Number.isSafeInteger(step)&&step>=2&&step<=999999&&['ahead','result','reconciliation'].includes(kind),'Invalid V1 journal name.');
  return 'sync-v1-step-'+String(step).padStart(6,'0')+'-'+kind+'.json';
 }
 export function syncCommon(t){return {schemaVersion:1,boardId:PILOT_BOARD,planVersion:1,
@@ -32,7 +32,8 @@ export async function fullSyncModel(e,editorId,now=Date.now()){
   sourceFingerprint:snapshots[i],expectedFingerprint:snapshots[i+1],
   sourceBoardSha256:hashes[i],expectedBoardSha256:hashes[i+1]}));
  return {targets,snapshots,hashes,changedTaskCount:changes.length,taskCount:base.tasks.length,
-  pilot:pilot.target,finalFingerprint:snapshots.at(-1),finalBoardSha256:hashes.at(-1)};
+  pilot:pilot.target,effectiveWorking:structuredClone(working),reconciliations:[],
+  approvedFinalBoardSha256:hashes.at(-1),finalFingerprint:snapshots.at(-1),finalBoardSha256:hashes.at(-1)};
 }
 export async function validateStepAhead(pair,t,previousResultSha256,now=Date.now()){
  const d=pair?.document;
@@ -65,18 +66,92 @@ export async function validateStepResult(pair,ahead,t,now=Date.now()){
   'V1 szinkron: a sikeres allapot nincs visszaellenorizve.');
  return true;
 }
+// Recovery is an explicit, append-only acceptance of ONE documented representation
+// difference. Never trim fingerprint/equality inputs or modify the Approved Plan.
+export async function noteReconciliationCandidate(r,t){
+ const d=r.result?.document,approvedNote=t.fields.note?.after;
+ if(d?.status!=='ITEM_UNCERTAIN'||d.mutationAttempts!==1||d.replyConfirmed!==true||
+    d.error!=='READBACK_MISMATCH'||d.itemReadbackMatches!==false||d.fullBoardReadbackMatches!==false||
+    typeof approvedNote!=='string'||!approvedNote.endsWith(' '))return null;
+ // ASCII U+0020 at the END only. Leading/internal/Unicode whitespace is significant.
+ const observedNote=approvedNote.replace(/ +$/,'');
+ if(!observedNote||observedNote===approvedNote)return null;
+ const task={...structuredClone(t.after),note:observedNote};
+ const snapshot=JSON.parse(t.expectedFingerprint),item=snapshot.tasks.find(x=>x.id===t.taskId);
+ if(!item)return null;item.note=observedNote;
+ const observedFingerprint=pilotFingerprint(snapshot),observedBoardSha256=await sha(observedFingerprint),
+  observedItemSha256=await sha(stable(pilotTask(task)));
+ if(d.boardReadbackSha256!==observedBoardSha256||d.itemReadbackSha256!==observedItemSha256)return null;
+ const binding={...syncCommon(t),step:t.step,taskId:t.taskId,taskName:t.taskName,
+  policy:'EXPLICIT_TRAILING_ASCII_SPACE_ACCEPTANCE',approvedNote,observedNote,
+  approvedExpectedBoardSha256:t.expectedBoardSha256,
+  originalAheadSha256:r.ahead.receipt.sha256,originalResultSha256:r.result.receipt.sha256,
+  observedBoardSha256,observedItemSha256};
+ return {...binding,sha256:await sha(stable(binding)),observedFingerprint};
+}
+export function recoverySummary(c){return c?{step:c.step,taskId:c.taskId,taskName:c.taskName,
+ approvedNote:c.approvedNote,observedNote:c.observedNote,sha256:c.sha256}:null;}
+export async function validateNoteReconciliation(pair,c,now=Date.now()){
+ const d=pair?.document;
+ await checkPilotFile(d,pair?.receipt,'Sync-Status',stepName(c.step,'reconciliation'));
+ const {observedFingerprint,sha256,...binding}=c;
+ let rawNote;try{rawNote=JSON.parse(d.rawNoteValue);}catch{throw Error('Hibas nyers megjegyzes-igazolas.');}
+ ok(Object.entries(binding).every(([k,v])=>d[k]===v)&&
+  d.format==='mflow-v1-sync-reconciliation'&&d.status==='NOTE_REPRESENTATION_ACCEPTED'&&
+  d.candidateSha256===sha256&&d.userConfirmed===true&&d.approvedExactMatch===false&&
+  d.newMutationAttempts===0&&d.historicalMutationAttempts===1&&
+  d.noteText===c.observedNote&&rawNote===c.observedNote&&
+  d.fullBoardReadbackMatches===true&&d.automaticallyRetryable===false&&
+  pilotUuid(d.executionId)&&pilotUuid(d.requestId)&&
+  Number.isFinite(Date.parse(d.checkedAt))&&Number.isFinite(Date.parse(d.createdAt))&&
+  Date.parse(d.checkedAt)<=Date.parse(d.createdAt)+5000&&
+  Date.parse(d.createdAt)-Date.parse(d.checkedAt)<=120000&&Date.parse(d.createdAt)<=now+5000,
+  'V1: a megjegyzes eltereserol nincs ervenyes, jovahagyott egyeztetesi nyugta.');
+ return d;
+}
+async function projectAcceptedNote(model,c,pair){
+ // Rebuild only FUTURE expectations from a validated receipt; old expected hashes
+ // remain in the immutable ahead/result and in the reconciliation's binding.
+ for(let i=c.step;i<model.snapshots.length;i++){
+  const snapshot=JSON.parse(model.snapshots[i]);
+  snapshot.tasks.find(t=>t.id===c.taskId).note=c.observedNote;
+  model.snapshots[i]=pilotFingerprint(snapshot);model.hashes[i]=await sha(model.snapshots[i]);
+ }
+ for(const t of model.targets.filter(t=>t.step>c.step)){
+  t.sourceFingerprint=model.snapshots[t.step-1];t.sourceBoardSha256=model.hashes[t.step-1];
+  t.expectedFingerprint=model.snapshots[t.step];t.expectedBoardSha256=model.hashes[t.step];
+ }
+ model.effectiveWorking.find(t=>t.id===c.taskId).note=c.observedNote;
+ model.reconciliations.push({step:c.step,taskId:c.taskId,sha256:pair.receipt.sha256,
+  approvedNote:c.approvedNote,observedNote:c.observedNote});
+ model.finalFingerprint=model.snapshots.at(-1);model.finalBoardSha256=model.hashes.at(-1);
+}
 export async function inspectFullSyncEvidence(e,editorId,now=Date.now()){
  const model=await fullSyncModel(e,editorId,now);
  ok(Array.isArray(e.records)&&e.records.length<model.changedTaskCount&&e.final!==undefined,
   'V1 szinkron: hianyos vagy tulhosszu naplolista.');
- let verified=1,previous=e.result.receipt.sha256,blocked=false;
+ let verified=1,previous=e.result.receipt.sha256,blocked=false,recovery=null;
  const ledger=[previous];
  for(let i=0;i<e.records.length;i++){
   const r=e.records[i],t=model.targets[i+1];
   ok(!blocked&&r?.step===i+2&&r.ahead&&r.result!==undefined,'Hianyos, ritkas vagy arva V1 naplosor.');
   await validateStepAhead(r.ahead,t,previous,now);
-  if(!r.result){blocked=true;continue;}
-  if(!await validateStepResult(r.result,r.ahead,t,now)){blocked=true;continue;}
+  if(!r.result){ok(!r.reconciliation,'Eredmeny nelkuli egyeztetesi nyugta.');blocked=true;continue;}
+  if(!await validateStepResult(r.result,r.ahead,t,now)){
+   const candidate=await noteReconciliationCandidate(r,t);
+   if(r.reconciliation){
+    ok(candidate,'Nem megengedett V1 mezoelteres egyeztetese.');
+    await validateNoteReconciliation(r.reconciliation,candidate,now);
+    ok(Date.parse(r.reconciliation.document.checkedAt)>=Date.parse(r.result.document.checkedAt),
+     'Az egyeztetes megelozi az eredeti eredmenyt.');
+    await projectAcceptedNote(model,candidate,r.reconciliation);
+    ledger.push(r.result.receipt.sha256);previous=r.reconciliation.receipt.sha256;
+    ledger.push(previous);verified++;continue;
+   }
+   if(candidate){recovery=candidate;ledger.push(r.result.receipt.sha256);}
+   blocked=true;continue;
+  }
+  ok(!r.reconciliation,'Sikeres feladathoz felesleges egyeztetesi nyugta.');
   previous=r.result.receipt.sha256;ledger.push(previous);verified++;
  }
  const ledgerSha256=await sha(stable(ledger)),complete=verified===model.changedTaskCount&&!blocked;
@@ -89,10 +164,14 @@ export async function inspectFullSyncEvidence(e,editorId,now=Date.now()){
    d.boardReadbackSha256===model.finalBoardSha256&&d.fullBoardReadbackMatches===true&&
    d.automaticallyRetryable===false&&Number.isFinite(Date.parse(d.checkedAt))&&
    Date.parse(d.checkedAt)<=now+5000,'V1 szinkron: a zaronyugta nem igazolt.');
+  if(model.reconciliations.length)ok(d.approvedExactMatch===false&&
+   d.approvedFinalBoardSha256===model.approvedFinalBoardSha256&&
+   stable(d.reconciliations)===stable(model.reconciliations),'A zaronyugtahoz hianyzik az elfogadott szovegelteres.');
  }
- return {status:blocked?'MANUAL_RECONCILIATION_REQUIRED':e.final?'V1_SYNC_COMPLETED':complete?'READY_TO_CLOSE':'READY_TO_SYNC',
-  model,verifiedTaskCount:verified,remainingTaskCount:model.changedTaskCount-verified,
-  expectedFingerprint:model.snapshots[verified],expectedBoardSha256:model.hashes[verified],
+ return {status:recovery?'RECONCILIATION_AVAILABLE':blocked?'MANUAL_RECONCILIATION_REQUIRED':e.final?'V1_SYNC_COMPLETED':complete?'READY_TO_CLOSE':'READY_TO_SYNC',
+  model,recovery,verifiedTaskCount:verified,remainingTaskCount:model.changedTaskCount-verified,
+  expectedFingerprint:recovery?.observedFingerprint??model.snapshots[verified],
+  expectedBoardSha256:recovery?.observedBoardSha256??model.hashes[verified],
   next:complete||blocked?null:model.targets[verified],previousResultSha256:previous,ledgerSha256};
 }
 export function requireFreshBoard(request,state,now=Date.now()){

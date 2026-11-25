@@ -321,6 +321,10 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
    return beginV1FullSyncWithConsent({full,args,
     host:approvedV1SyncOutput.parentElement,output:approvedV1SyncOutput,isCurrent});
   }
+  if(action==='reconcile'){
+   approvedV1SyncOutput.textContent='Elfogadott megjegyzes-elteres egyeztetesi nyugtaja. A feladatot nem irjuk ujra.';
+   return full.reconcile(args);
+  }
   if(action==='ahead'){
    approvedV1SyncOutput.textContent='V1 szinkron: '+payload.step+'. feladat elonaploja es ellenorzese...';
    return full.ahead(args);

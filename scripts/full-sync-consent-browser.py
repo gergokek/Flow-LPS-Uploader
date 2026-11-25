@@ -26,14 +26,14 @@ with sync_playwright() as pw:
  page.evaluate('''async handler=>{
  const {beginV1FullSyncWithConsent}=await import('/full-sync-consent-ui.js');
  window.identity={homeAccountId:'test-home',tenantId:'test-tenant'};
- window.beginCalls=0;window.nativeCalls=0;window.answer=null;
+ window.beginCalls=0;window.nativeCalls=0;window.answer=null;window.recovery=false;window.lastConsent=null;
  window.confirm=()=>{window.nativeCalls++;return false;};
  const projectBoard={value:'5107075373'},msal={getAllAccounts:()=>[window.identity]};
  const selected={receipt:{sha256:'a'.repeat(64)},sessionId:'test-session',revision:4};
  let singleSyncSelected=selected;
  const singleBridge={active:true,ready:()=>true,syncSession:()=>({sha256:'a'.repeat(64),sessionId:'test-session',revision:4})};
- const singleSyncStore={fullSync:{inspect:async()=>({status:'READY_TO_SYNC',verifiedTaskCount:1,remainingTaskCount:49,changedTaskCount:50,ledgerSha256:'b'.repeat(64)}),
-  begin:async args=>{if(args.userConfirmed!==true)throw Error('No consent');window.beginCalls++;return {remainingTaskCount:49};}}};
+ const singleSyncStore={fullSync:{inspect:async()=>({status:window.recovery?'RECONCILIATION_AVAILABLE':'READY_TO_SYNC',reconciliation:window.recovery?{step:2,taskId:'102',taskName:'Synthetic task',approvedNote:'Note ',observedNote:'Note',sha256:'c'.repeat(64)}:null,verifiedTaskCount:1,remainingTaskCount:49,changedTaskCount:50,ledgerSha256:'b'.repeat(64)}),
+  begin:async args=>{if(args.userConfirmed!==true)throw Error('No consent');window.lastConsent=args.acceptedReconciliationSha256;window.beginCalls++;return {remainingTaskCount:49};}}};
  const approvedV1SyncOutput=document.querySelector('#approvedV1SyncResult');
  const callback=eval('('+handler+')');
  window.start=()=>{window.answer=null;window.pending=callback({action:'full-begin',requestId:'test-request',expectedApprovedSha256:'a'.repeat(64),expectedSessionId:'test-session',expectedRevision:4,payload:{ledgerSha256:'b'.repeat(64)}}).then(x=>window.answer={ok:true,result:x}).catch(e=>window.answer={ok:false,error:e.message});};
@@ -52,7 +52,14 @@ with sync_playwright() as pw:
  page.evaluate('start()');page.wait_for_selector('#approveV1FullSync')
  page.evaluate("identity={homeAccountId:'changed',tenantId:'test-tenant'}")
  page.wait_for_function('answer!==null');assert not page.evaluate('answer.ok') and page.evaluate('beginCalls')==1
- report={'status':'PASSED','cases':['background request waits','no native dialog','Enter does not approve','explicit accept only','cancel writes nothing','identity change blocks'], 'syntheticBeginCalls':page.evaluate('beginCalls'),'nativeConfirmCalls':page.evaluate('nativeCalls'),'externalWrites':0}
+ page.evaluate("identity={homeAccountId:'test-home',tenantId:'test-tenant'};recovery=true;start()")
+ page.wait_for_selector('#approveV1FullSync')
+ text=page.locator('#v1FullSyncConsent').inner_text()
+ assert '"Note "' in text and '"Note"' in text and '48 tovabbi feladat' in text
+ page.screenshot(path=str(out/'full-sync-reconciliation-consent.png'),full_page=True)
+ page.locator('#approveV1FullSync').click();page.wait_for_function('answer!==null')
+ assert page.evaluate('answer.ok') and page.evaluate('lastConsent')=='c'*64 and page.evaluate('beginCalls')==2
+ report={'status':'PASSED','cases':['background request waits','no native dialog','Enter does not approve','explicit accept only','cancel writes nothing','identity change blocks','explicit variance description and acceptance binding'], 'syntheticBeginCalls':page.evaluate('beginCalls'),'nativeConfirmCalls':page.evaluate('nativeCalls'),'externalWrites':0}
  (out/'result.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report))
  context.close();browser.close()
 server.shutdown()
