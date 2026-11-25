@@ -15,10 +15,11 @@ function safeUrl(value){
 const requireValid=(c,m)=>{if(!c)throw Error(m);};
 const bytes=value=>new TextEncoder().encode(JSON.stringify(value,null,2)+'\n');
 export function createSingleDraftSessionStore({boardId,driveId,
- getAccessToken,fetcher=fetch,assertCurrent=()=>true,
+ getAccessToken,getMeAccessToken=getAccessToken,fetcher=fetch,assertCurrent=()=>true,
  now=()=>new Date(),randomUUID=()=>crypto.randomUUID()}={}){
  requireValid(boardId==='5107075373'&&/^b![-_A-Za-z0-9]+$/.test(driveId||'')&&
-  typeof getAccessToken==='function'&&typeof fetcher==='function'&&
+  typeof getAccessToken==='function'&&typeof getMeAccessToken==='function'&&
+  typeof fetcher==='function'&&
   typeof assertCurrent==='function'&&typeof now==='function'&&
   typeof randomUUID==='function',
   'Érvénytelen, nem izolált TEST SharePoint-munkamenet.');
@@ -301,14 +302,18 @@ export function createSingleDraftSessionStore({boardId,driveId,
   requireValid(boardDigest===boardFingerprintSha256,
    'A Monday-board és a V0 kiinduló állapot SHA-256 bizonyítéka eltér.');
   // Delegated Entra identity is read from Graph, not from a postMessage body.
-  const token=await getAccessToken();
+  const token=await getMeAccessToken();
   requireValid(typeof token==='string'&&token.length>0,
-   'Microsoft Graph token szükséges az Approved Planhoz.');
+   'Microsoft Graph User.Read token szükséges az Approved Planhoz.');
   const who=await fetcher('https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName',{
    method:'GET',cache:'no-store',redirect:'error',
    headers:{Authorization:'Bearer '+token,Accept:'application/json'}});
   requireValid(who.ok,'A Microsoft Graph /me azonosítás sikertelen: HTTP '+who.status);
   const me=await who.json();
+  requireValid(typeof createdBy==='string'&&
+   /^[0-9a-f-]{36}\.[0-9a-f-]{36}$/i.test(createdBy)&&
+   me?.id?.toLowerCase()===createdBy.split('.')[0].toLowerCase(),
+   'A Microsoft Graph /me eltér a V1 munkamenet eredeti Entra-azonosságától.');
   requireValid(typeof me?.id==='string'&&
    /^[0-9a-f-]{36}$/i.test(me.id)&&
    typeof me?.userPrincipalName==='string'&&!!me.userPrincipalName,
