@@ -1,1 +1,1 @@
-2026-11-25 V1 single-task pilot: immutable ahead/result journals, checkpoint reuse and safe read-only recovery. Implementation 7cffe1a40ed40101cc155c99d6e891727f03c991. No runtime Monday or SharePoint writes by deployment.
+2026-11-25 full V1 sync: single consent, sequential immutable journals, verified-prefix recovery and final receipt. Implementation d19c27d070bd4b12f6f2e0e5486fcac749a70813. TEST /test/ only; main root unchanged.
