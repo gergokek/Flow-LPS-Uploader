@@ -5,7 +5,7 @@ import {fingerprint} from './single-draft-session-core.js';
 
 const boardId='5107075373',driveId='b!testdrive',
  sessionId='11111111-1111-4111-8111-111111111111';
-function fakeGraph(){
+function fakeGraph({writeStatus=null}={}){
  const base={id:boardId,workspaceId:'7145773',name:'Board',
   columns:[],groups:[],tasks:[{id:'101',name:'A',note:'',
    updatedAt:'2026-11-01T00:00:00Z'}]};
@@ -56,6 +56,17 @@ function fakeGraph(){
      parentReference:{driveId}});
    }
    const f=files.get(dir+'/'+name);
+   if(method==='PUT'){
+    if(uri.searchParams.get('@microsoft.graph.conflictBehavior')!=='fail')
+     throw Error('TEST attempted unsafe Graph overwrite');
+    if(writeStatus!==null)return response({error:{code:'accessDenied'}},writeStatus);
+    if(f)return response({error:{code:'nameAlreadyExists'}},409);
+    counters.uploads++;
+    const content=new Uint8Array(options.body);
+    const saved=add(dir,name,JSON.parse(new TextDecoder().decode(content)));
+    saved.content=content;saved.size=content.length;
+    return response({...saved,content:undefined},201);
+   }
    if(method==='GET')return f?response({...f,content:undefined}):
     new Response('',{status:404});
   }
@@ -140,4 +151,26 @@ test('partial start cannot create a second session after immutable claim',async(
  await assert.rejects(g.store.resume(),/kiinduló fájlja hiányzik/);
  await assert.rejects(g.store.start({createdBy:'entra-user'}),/aktív munkamenet/);
  assert.equal(g.counters.uploads,2);
+});
+
+test('read-only Entra/Graph token fails explicitly without creating claim',async()=>{
+ const g=fakeGraph({writeStatus:403});
+ await assert.rejects(g.store.start({createdBy:'entra-user'}),
+  /HTTP 403 \/ accessDenied.*írási engedélyt/);
+ assert.equal(g.files.has('Draft-Plans/active-session.json'),false);
+ assert.equal(g.files.has('Draft-Plans/draft-v1.json'),false);
+ assert.equal(g.counters.uploads,0);
+});
+test('ambiguous Graph 500 does not automatically retry immutable claim',async()=>{
+ const g=fakeGraph({writeStatus:500});
+ await assert.rejects(g.store.start({createdBy:'entra-user'}),/HTTP 500/);
+ assert.equal(g.files.has('Draft-Plans/active-session.json'),false);
+ assert.equal(g.counters.uploads,0);
+});
+test('duplicate immutable filename is never overwritten even after concurrent preflight',async()=>{
+ const g=fakeGraph(),first=await g.store.start({createdBy:'entra-user'});
+ const prior=g.files.get('Draft-Plans/active-session.json').content;
+ await assert.rejects(g.store.start({createdBy:'entra-user'}),/már tartozik aktív/);
+ assert.deepEqual(g.files.get('Draft-Plans/active-session.json').content,prior);
+ assert.equal(first.claimReceipt.verification,'content-sha256-and-etag');
 });
