@@ -73,7 +73,7 @@ jobs:
         run: |
           for i in $(seq 1 20); do
             if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name' | grep -Fxq "$PAGES_ARTIFACT_NAME"; then
-              echo 'Pages artifact is indexed'; exit 0
+              echo 'Pages artifact is indexed; allow Pages deployment API to converge'; sleep 20; exit 0
             fi
             sleep 3
           done
