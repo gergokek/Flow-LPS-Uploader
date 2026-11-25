@@ -4,8 +4,10 @@
 export const SINGLE_DRAFT_PROTOCOL='mflow-single-draft-session-v1';
 const uuid=s=>typeof s==='string'&&/^[a-f0-9-]{36}$/i.test(s);
 export function attachSingleDraftSessionBridge({win=window,
- onSaveRevision=async()=>{},onApprovePlan=async()=>{},onStatus=()=>{}}={}){
+ onSaveRevision=async()=>{},onApprovePlan=async()=>{},
+ onPrepareSync=async()=>{},onStatus=()=>{}}={}){
  if(typeof onSaveRevision!=='function'||typeof onApprovePlan!=='function'||
+    typeof onPrepareSync!=='function'||
     typeof onStatus!=='function'||
     !win||typeof win.addEventListener!=='function')
   throw Error('Érvénytelen TEST munkamenet-átadás.');
@@ -13,8 +15,9 @@ export function attachSingleDraftSessionBridge({win=window,
  const nonce=p.get('mflow-session'),boardId=p.get('board');
  if(!uuid(nonce)||boardId!=='5107075373'||!win.opener)
   return Object.freeze({active:false,ready:false,close:()=>{},
-   selected:()=>false,saved:()=>false,failed:()=>false});
- let origin=null,closed=false,selectedSession=null,working=false,approved=false,blocked=false;
+   selected:()=>false,approvedForSync:()=>false,saved:()=>false,failed:()=>false});
+ let origin=null,closed=false,selectedSession=null,working=false,
+  approved=false,blocked=false,approvedForSyncState=null,syncPrepared=false;
  const emit=(kind,extras={})=>{
   if(closed||!origin||!win.opener)return false;
   try{win.opener.postMessage({protocol:SINGLE_DRAFT_PROTOCOL,
@@ -29,7 +32,49 @@ export function attachSingleDraftSessionBridge({win=window,
    if(origin&&origin!==event.origin)return;
    origin=event.origin;emit('ready');onStatus('ready');return;
   }
-  if(!origin||event.origin!==origin||working||!selectedSession||approved||blocked)return;
+  if(!origin||event.origin!==origin||working||blocked)return;
+  if(event.data.kind==='prepare-sync-checkpoint'&&approvedForSyncState&&!syncPrepared){
+   const x=event.data;
+   if(!uuid(x.requestId)||x.expectedApprovedSha256!==approvedForSyncState.sha256||
+      x.expectedSessionId!==approvedForSyncState.sessionId||
+      x.expectedRevision!==approvedForSyncState.revision||
+      !/^[a-f0-9]{64}$/.test(x.boardFingerprintSha256||'')||
+      !/^\d+$/.test(x.editorId||'')||
+      typeof x.boardVerifiedAt!=='string')return;
+   working=true;
+   try{
+    const result=await onPrepareSync({
+     expectedApprovedSha256:x.expectedApprovedSha256,
+     expectedSessionId:x.expectedSessionId,
+     expectedRevision:x.expectedRevision,
+     boardFingerprintSha256:x.boardFingerprintSha256,
+     boardVerifiedAt:x.boardVerifiedAt,
+     editorId:x.editorId
+    });
+    if(result?.status!=='PREPARED_NO_WRITES'||
+       result.approvedSha256!==approvedForSyncState.sha256||
+       result.checkpoint?.name!=='sync-v1-prepared.json'||
+       !/^[a-f0-9]{64}$/.test(result.checkpoint.sha256||'')||
+       !result.checkpoint.eTag||result.mondayWrites!==0||
+       result.writeAuthorization!=='NOT_GRANTED')
+     throw Error('Nem igazolt a szinkron 0-írásos checkpoint.');
+    syncPrepared=true;
+    emit('sync-checkpoint-stored',{
+     requestId:x.requestId,status:result.status,
+     approvedSha256:result.approvedSha256,
+     checkpoint:result.checkpoint,mondayWrites:0,
+     writeAuthorization:'NOT_GRANTED'
+    });
+    onStatus('sync-prepared');
+   }catch(error){
+    blocked=true;
+    emit('sync-checkpoint-failed',{
+     requestId:x.requestId,message:String(error?.message||error).slice(0,350)});
+    onStatus('blocked');
+   }finally{working=false;}
+   return;
+  }
+  if(!selectedSession||approved)return;
   if(event.data.kind==='save-revision'){
    const draft=event.data.draft,requestId=event.data.requestId;
    if(!uuid(requestId)||!draft||typeof draft!=='object'||
@@ -116,7 +161,31 @@ export function attachSingleDraftSessionBridge({win=window,
    sha256:verified.receipt.sha256};
   return sent;
  }
+ function approvedForSync(verified){
+  if(closed||!origin||working||blocked||selectedSession||
+     approvedForSyncState||verified?.status!=='APPROVED_V1_VERIFIED'||
+     verified.boardId!==boardId||!uuid(verified.sessionId)||
+     verified.planVersion!==1||verified.revision<1||
+     verified.receipt?.name!=='approved-v1.json'||
+     verified.receipt.verification!=='content-sha256-and-etag'||
+     !/^[a-f0-9]{64}$/.test(verified.receipt.sha256||'')||
+     verified.approvedPlan?.sourceDraft?.sha256!==verified.sourceDraftSha256||
+     verified.mondayWrites!==0||verified.mondaySyncAllowed!==false)
+   return false;
+  const sent=emit('approved-sync-selected',{
+   sessionId:verified.sessionId,revision:verified.revision,
+   approvedPlan:structuredClone(verified.approvedPlan),
+   receipt:verified.receipt,
+   approvalReceiptSha256:verified.approvalReceiptSha256,
+   freezeSha256:verified.freezeSha256,
+   sourceDraftSha256:verified.sourceDraftSha256,
+   mondayWrites:0,mondaySyncAllowed:false});
+  if(sent)approvedForSyncState={sessionId:verified.sessionId,
+   revision:verified.revision,sha256:verified.receipt.sha256};
+  return sent;
+ }
  const close=()=>{closed=true;win.removeEventListener('message',handler);};
- return Object.freeze({active:true,selected,close,
-  ready:()=>!!origin,session:()=>selectedSession});
+ return Object.freeze({active:true,selected,approvedForSync,close,
+  ready:()=>!!origin,session:()=>selectedSession,
+  syncSession:()=>approvedForSyncState});
 }
