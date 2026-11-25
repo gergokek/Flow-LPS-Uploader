@@ -299,6 +299,41 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
     request.expectedRevision!==singleSyncSelected.revision)
   throw Error('V1 pilot: nincs ellenorzott Approved V1 kapcsolat.');
  const payload=request.payload||{},createdBy=account.homeAccountId;
+ if(request.action.startsWith('full-')){
+  const full=singleSyncStore.fullSync,action=request.action.slice(5);
+  const args={...payload,createdBy,requestId:request.requestId};
+  if(action==='inspect'){
+   approvedV1SyncOutput.textContent='Teljes V1 naplolanc ellenorzese. Ez meg csak olvasas.';
+   return full.inspect(args);
+  }
+  if(action==='begin'){
+   const report=await full.inspect(args);
+   if(!window.confirm('TELJES V1 VISSZAIRAS - Monday TEST board 5107075373.\n'+
+    report.remainingTaskCount+' hatralevo feladat, automatikus naplozassal es visszaellenorzessel.\n'+
+    'Az igazolt feladatokat kihagyjuk. Nincs tovabbi tizesenkenti megerosites.\n'+
+    'Mindket ablak maradjon nyitva. Hiba eseten megallas, nincs automatikus ujrairas.\nInditod?'))
+    throw Error('A teljes szinkron inditasat megszakitottad. Nem tortent iras.');
+   const result=await full.begin({...args,userConfirmed:true});
+   approvedV1SyncOutput.textContent='Teljes V1 szinkron engedelyezve. Hatravan: '+result.remainingTaskCount+
+    ' feladat. Automatikus naplozas; az ablak maradjon nyitva.';return result;
+  }
+  if(action==='ahead'){
+   approvedV1SyncOutput.textContent='V1 szinkron: '+payload.step+'. feladat elonaploja es ellenorzese...';
+   return full.ahead(args);
+  }
+  if(action==='result'){
+   const result=await full.result(args);
+   approvedV1SyncOutput.textContent='V1 szinkron: '+result.document.step+'. feladat: '+result.document.status+
+    '. Eredmenynaplo visszaellenorizve.';return result;
+  }
+  if(action==='finish'){
+   const result=await full.finish(args);
+   approvedV1SyncOutput.textContent='TELJES V1 SZINKRON LEZARVA. '+result.document.verifiedTaskCount+
+    ' modosult feladat igazolva. Zaronyugta: '+result.receipt.name+'. V2 meg nem indult.';return result;
+  }
+  throw Error('Ismeretlen teljes V1 szinkronmuvelet.');
+ }
+
  if(request.action==='inspect'){
   approvedV1SyncOutput.textContent='V1 pilot: a mar letezo checkpoint es naplok teljes visszaolvasasa. Nincs iras.';
   const report=await singleSyncStore.inspectV1Pilot({createdBy,editorId:payload.editorId});

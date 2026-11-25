@@ -1,3 +1,4 @@
+import {createV1FullSyncStore} from './single-v1-full-sync-storage.js';
 import {createV1PilotStore} from './single-v1-pilot-storage.js';
 import {ACTIVE_NAME,BASELINE_NAME,V0_NAME,MAX_DRAFT_BYTES,
  sha256,hex,stable,inspectV0,newSessionClaim,makeBaseline,inspectRevision,
@@ -442,8 +443,44 @@ export function createSingleDraftSessionStore({boardId,driveId,
    const me=await response.json();check();return me;
   }
  });
+
+ async function listFullSyncFiles(){
+  const parent=await folderMeta('Sync-Status'),out=[],seen=new Set(),names=new Set();
+  let next=root+'/items/'+encodeURIComponent(parent.id)+'/children?$select=id,name,file,size,eTag&$top=200';
+  for(let page=0;next&&page<50;page++){
+   requireValid(next.startsWith(root+'/')&&!seen.has(next),'Invalid Sync-Status pagination.');seen.add(next);
+   const response=await request(next.slice(root.length));
+   requireValid(response.ok,'Sync-Status list HTTP '+response.status);
+   const data=await response.json();requireValid(Array.isArray(data.value),'Invalid Sync-Status list.');
+   for(const item of data.value){
+    if(!item.name?.startsWith('sync-v1-step-'))continue;
+    requireValid(item.file&&item.id&&item.eTag&&!names.has(item.name),'Invalid/duplicate V1 journal.');
+    names.add(item.name);out.push(item);
+   }
+   next=data['@odata.nextLink']||null;
+  }
+  requireValid(!next,'Incomplete Sync-Status pagination.');return out;
+ }
+ const full=createV1FullSyncStore({inspectPilot:pilot.inspect,
+  readSync:name=>readFile(urlOf([...folder('Sync-Status'),name])),listSync:listFullSyncFiles,
+  createSync:(name,value)=>createFile('Sync-Status',name,value),check,now,
+  checkPinned:async(e,createdBy)=>{
+   check();const refs=[e.receipt,e.checkpointReceipt,e.ahead.receipt,e.result.receipt];
+   for(const receipt of refs){
+    const folderName=receipt.name==='approved-v1.json'?'Approved-Plans':'Sync-Status';
+    const current=await metadata(urlOf([...folder(folderName),receipt.name]));
+    requireValid(current?.id===receipt.id&&current.eTag===receipt.eTag,'Pinned V1 evidence changed.');
+   }
+   const token=await getMeAccessToken();requireValid(!!token,'Graph identity token required.');
+   const response=await fetcher('https://graph.microsoft.com/v1.0/me?$select=id',{
+    method:'GET',cache:'no-store',redirect:'error',headers:{Authorization:'Bearer '+token,Accept:'application/json'}});
+   requireValid(response.ok,'Full sync identity HTTP '+response.status);
+   const me=await response.json();
+   requireValid(me?.id?.toLowerCase()===e.checkpoint.microsoftEntraObjectId.toLowerCase()&&
+    createdBy===e.checkpoint.createdBy,'Full sync identity changed.');check();
+  }});
  return Object.freeze({start,resume,append,readV0,reviewApproval,approve,
   inspectApprovedSync,prepareApprovedSync,
   inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
-  saveV1PilotResult:pilot.saveResult});
+  saveV1PilotResult:pilot.saveResult,fullSync:full});
 }
