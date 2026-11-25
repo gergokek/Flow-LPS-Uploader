@@ -14,7 +14,7 @@ export function attachSingleDraftSessionBridge({win=window,
  if(!uuid(nonce)||boardId!=='5107075373'||!win.opener)
   return Object.freeze({active:false,ready:false,close:()=>{},
    selected:()=>false,saved:()=>false,failed:()=>false});
- let origin=null,closed=false,selectedSession=null,working=false,approved=false;
+ let origin=null,closed=false,selectedSession=null,working=false,approved=false,blocked=false;
  const emit=(kind,extras={})=>{
   if(closed||!origin||!win.opener)return false;
   try{win.opener.postMessage({protocol:SINGLE_DRAFT_PROTOCOL,
@@ -29,7 +29,7 @@ export function attachSingleDraftSessionBridge({win=window,
    if(origin&&origin!==event.origin)return;
    origin=event.origin;emit('ready');onStatus('ready');return;
   }
-  if(!origin||event.origin!==origin||working||!selectedSession||approved)return;
+  if(!origin||event.origin!==origin||working||!selectedSession||approved||blocked)return;
   if(event.data.kind==='save-revision'){
    const draft=event.data.draft,requestId=event.data.requestId;
    if(!uuid(requestId)||!draft||typeof draft!=='object'||
@@ -51,6 +51,7 @@ export function attachSingleDraftSessionBridge({win=window,
       name:result.receipt.name,verification:result.receipt.verification}});
     onStatus('saved');
    }catch(error){
+    blocked=true;
     emit('revision-failed',{requestId,message:String(error?.message||error).slice(0,300)});
     onStatus('blocked');
    }finally{working=false;}
@@ -86,6 +87,7 @@ export function attachSingleDraftSessionBridge({win=window,
      mondayWrites:0,mondaySyncAllowed:false});
     onStatus('approved');
    }catch(error){
+    blocked=true;
     emit('approval-failed',{requestId:x.requestId,
      message:String(error?.message||error).slice(0,350)});
     onStatus('blocked');
@@ -97,7 +99,7 @@ export function attachSingleDraftSessionBridge({win=window,
  try{win.opener.postMessage({protocol:SINGLE_DRAFT_PROTOCOL,
   kind:'ready',nonce,boardId},'*');}catch{/* User can retry opening. */}
  function selected(verified){
-  if(closed||!origin||working||approved||selectedSession||verified?.status!=='ACTIVE'||
+  if(closed||!origin||working||approved||blocked||selectedSession||verified?.status!=='ACTIVE'||
      verified.boardId!==boardId||!uuid(verified.sessionId)||
      !Number.isSafeInteger(verified.revision)||verified.revision<0||
      verified.draft?.session?.sessionId!==verified.sessionId||
