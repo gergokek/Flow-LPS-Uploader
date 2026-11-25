@@ -39,6 +39,8 @@ const projectResult=document.querySelector('#projectResult');
 const createSingleDraft=document.querySelector('#startSingleDraft');
 const resumeSingleDraft=document.querySelector('#resumeSingleDraft');
 const singleDraftOutput=document.querySelector('#singleDraftResult');
+const inspectApprovedV1Button=document.querySelector('#inspectApprovedV1');
+const approvedV1SyncOutput=document.querySelector('#approvedV1SyncResult');
 let draftTransferText=null;
 const draftSaveButton=document.querySelector('#saveDraft');
 const draftSaveResult=document.querySelector('#draftSaveResult');
@@ -57,6 +59,7 @@ function showAccount(account){
  const connected=!!singleBridge?.active&&singleBridge.ready();
  createSingleDraft.disabled=!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
  resumeSingleDraft.disabled=!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
+ inspectApprovedV1Button.disabled=!account||!connected||!!singleSession||!!singleSyncSelected||syncInspectBusy||projectBoard.value.trim()!=='5107075373';
  draftSaveButton.disabled=!account||!draftTransferText;
  editedSave.disabled=!account||!editedDraftText;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
@@ -235,6 +238,7 @@ const pickerMeToken=async()=>{
 // New, isolated one-session workflow. No legacy autosave coalescing and no
 // direct Monday writes. Existing legacy tests remain available separately.
 let singleSession=null,singleSessionQueue=null,singleStore=null,singleBusy=false;
+let singleSyncStore=null,singleSyncSelected=null,syncInspectBusy=false,syncPrepareBlocked=false;
 const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,sessionId})=>{
  if(!singleSession||!singleSessionQueue||singleSession.sessionId!==sessionId||
     singleSessionQueue.state().blocked||
@@ -267,6 +271,25 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   'Approved SHA-256: '+result.approvedPlan.sha256+'\n'+
   'Monday-board módosítás: 0.\n'+
   'Szinkronizáció külön későbbi művelet.';
+ return result;
+},onPrepareSync:async request=>{
+ const account=msal.getAllAccounts()[0];
+ if(!account||!singleSyncStore||!singleSyncSelected||syncPrepareBlocked||
+    request.expectedApprovedSha256!==singleSyncSelected.receipt.sha256||
+    request.expectedSessionId!==singleSyncSelected.sessionId||
+    request.expectedRevision!==singleSyncSelected.revision)
+  throw Error('A jóváhagyott V1 szinkron előkészítése nem hitelesíthető.');
+ // Once a SharePoint create is attempted, an uncertain outcome is terminal.
+ syncPrepareBlocked=true;
+ const result=await singleSyncStore.prepareApprovedSync({
+  expectedApprovedSha256:request.expectedApprovedSha256,
+  createdBy:account.homeAccountId,editorId:request.editorId,
+  boardVerifiedAt:request.boardVerifiedAt,
+  boardFingerprintSha256:request.boardFingerprintSha256});
+ approvedV1SyncOutput.textContent='V1 szinkron 0-írásos checkpoint visszaellenőrizve.\n'+
+  'Fájl: '+result.checkpoint.path+'\n'+
+  'SHA-256: '+result.checkpoint.sha256+'\n'+
+  'Monday-board módosítás: 0. A következő írás külön megerősítést igényel.';
  return result;
 },onStatus:state=>{
  if(state==='ready'){
@@ -340,6 +363,36 @@ async function openSingleSession(kind){
   createSingleDraft.disabled=!enabled;resumeSingleDraft.disabled=!enabled;
  }
 }
+async function inspectApprovedV1ForSync(){
+ if(syncInspectBusy||singleSession||singleSyncSelected||syncPrepareBlocked)return;
+ const boardId=projectBoard.value.trim(),account=msal.getAllAccounts()[0];
+ if(boardId!=='5107075373'||!account||!singleBridge.active||
+    !singleBridge.ready()){
+  approvedV1SyncOutput.textContent='Az Approved Plan V1 csak a kapcsolt Monday TEST-ből, bejelentkezett Microsoft-fiókkal vizsgálható.';
+  return;
+ }
+ syncInspectBusy=true;inspectApprovedV1Button.disabled=true;
+ approvedV1SyncOutput.textContent='Approved Plan V1, V0, teljes DRAFT-lánc, freeze és jóváhagyási nyugta független SharePoint-visszaellenőrzése...';
+ try{
+  const store=singleStoreFor(account,boardId);
+  const selected=await store.inspectApprovedSync({createdBy:account.homeAccountId});
+  if(!singleBridge.approvedForSync(selected))
+   throw Error('A Monday TEST nem fogadta el az Approved V1 szinkronellenőrzési átadást.');
+  singleSyncStore=store;singleSyncSelected=selected;
+  approvedV1SyncOutput.textContent='Approved Plan V1 SharePoint-verifikáció sikeres.\n'+
+   'Fájl: '+selected.receipt.name+'\nSHA-256: '+selected.receipt.sha256+
+   '\nFeladatok: '+selected.approvedPlan.plan.working.length+
+   '\nMódosítás a Monday-boardon: 0.\n'+
+   'A részletes szinkronelőnézetet a Monday TEST legalján nyisd meg.';
+ }catch(error){
+  approvedV1SyncOutput.textContent='Approved V1 szinkronellenőrzés sikertelen: '+
+   (error?.message||error)+
+   '\nNem történt Monday-írás. Ha valamelyik SharePoint-fájl sérült, ne folytasd.';
+ }finally{
+  syncInspectBusy=false;showAccount(msal.getAllAccounts()[0]||null);
+ }
+}
+inspectApprovedV1Button.addEventListener('click',()=>void inspectApprovedV1ForSync());
 createSingleDraft.addEventListener('click',()=>void openSingleSession('start'));
 resumeSingleDraft.addEventListener('click',()=>void openSingleSession('resume'));
 projectBoard.addEventListener('change',()=>{
