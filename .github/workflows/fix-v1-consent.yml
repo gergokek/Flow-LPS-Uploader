@@ -1,0 +1,59 @@
+name: Verify and apply explicit V1 consent fix
+on:
+  push:
+    branches: [feat/test-single-draft-session]
+    paths: [.github/workflows/fix-v1-consent.yml]
+permissions:
+  contents: write
+concurrency:
+  group: mflow-v1-consent-fix
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/feat/test-single-draft-session'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply reviewed exact-source patch
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python scripts/apply-full-sync-consent-fix.py
+          node --check app.js
+          node --check full-sync-consent-ui.js
+      - name: Regressions and TEST bundle
+        run: |
+          npm install --no-audit --no-fund
+          npm test
+          VITE_MFLOW_TEST_PREVIEW=1 npm run build -- --base=/Flow-LPS-Uploader/test/
+      - name: Browser test dependencies
+        run: |
+          python -m pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: Explicit accept, cancellation and background-window test
+        run: python scripts/full-sync-consent-browser.py
+      - name: Commit only verified application wiring
+        run: |
+          test "$(git ls-remote origin refs/heads/feat/test-single-draft-session | cut -f1)" = "$GITHUB_SHA"
+          git add app.js styles.css
+          test -z "$(git diff --cached --name-only -- .github/workflows)"
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(test): require explicit inline approval for full V1 synchronization'
+          git push origin HEAD:refs/heads/feat/test-single-draft-session
+          git rev-parse HEAD
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v1-inline-consent-verification
+          path: artifacts/consent/
+          retention-days: 7
