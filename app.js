@@ -233,6 +233,28 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
  if(singleSession?.revision!==draft.version)
   throw Error('A SharePoint-mentés verziója eltér.');
  return singleSession;
+},onApprovePlan:async request=>{
+ const account=msal.getAllAccounts()[0];
+ if(!singleStore||!singleSession||!singleSessionQueue||
+    !account||!singleSessionQueue.state().canApprove||
+    singleSession.status!=='SAVED'&&singleSession.status!=='ACTIVE'||
+    singleSession.sessionId!==request.expectedSessionId||
+    singleSession.revision!==request.expectedRevision||
+    singleSession.receipt?.sha256!==request.expectedSha256)
+  throw Error('A DRAFT jóváhagyása nem indítható; előbb ellenőrizd a mentett verziót.');
+ // Store independently re-reads all Graph files and verifies /me.
+ const result=await singleStore.approve({...request,
+  createdBy:account.homeAccountId});
+ singleSessionQueue.stop();
+ singleSession={...singleSession,status:'APPROVED_V1'};
+ singleDraftOutput.textContent=
+  'Approved Plan V1 mentve és visszaellenőrizve.\n'+
+  'Forrás: V1.'+result.revision+' / '+result.finalDraftSha256+'\n'+
+  'SharePoint: '+result.approvedPlan.path+'\n'+
+  'Approved SHA-256: '+result.approvedPlan.sha256+'\n'+
+  'Monday-board módosítás: 0.\n'+
+  'Szinkronizáció külön későbbi művelet.';
+ return result;
 },onStatus:state=>{
  if(state==='ready'){
   showAccount(msal.getAllAccounts()[0]||null);
