@@ -24,7 +24,10 @@ import {verifyDownloadedDraft} from './draft-content-verifier.js';
 import {inspectStoredDraft} from './draft-workspace.js';
 const clientId='3a2cf530-d7a7-4e48-bb90-023d7e293e7a';
 const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
-const redirectUri=new URL('./redirect.html',window.location.href).href;
+// The separate /test/ preview uses the existing registered SPA callback.
+// The registered production callback is unchanged, while app assets remain isolated.
+const testUi=import.meta.env.VITE_MFLOW_TEST_PREVIEW==='1';
+const redirectUri=new URL(testUi?'../redirect.html':'./redirect.html',window.location.href).href;
 const button=document.querySelector('#login');
 const status=document.querySelector('#authResult');
 const graphButton=document.querySelector('#checkSharePoint');
