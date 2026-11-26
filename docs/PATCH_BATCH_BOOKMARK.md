@@ -92,3 +92,14 @@ DONE:
 - Next: single consolidated user acceptance test for V2 final evidence -> V3 DRAFT/Approved -> V3 journaled Monday writeback -> V4 readiness, then separately implement guarded V4 allocation if accepted.
 
 PATCH BATCH #3 final TEST deployment verification (2026-11-26): Monday isolated TEST app deployment run 45843435714 SUCCESS (TEST code push, board-view connect and release verification). Uploader isolated Pages /test/ deployment run 45843428407 SUCCESS (production root unchanged). Synthetic cross-repository full V3 sync/rollback-stop/V4-ready CI run 45843032713 attempt 2 SUCCESS. No real project-data write during deployment. User manual acceptance remains paused; V4 allocation remains disabled.
+
+## PATCH BATCH #3 acceptance fix - V3 START_NEXT Uploader consent (2026-11-26)
+
+User evidence: Monday state is START_NEXT, version 3, two verified prior versions, zero initialized V3 files. Clicking the V3 start button reached Uploader's "waiting for separate approval" text, but the second consent control did not appear in the visible part of the UI. No confirmed V3 creation.
+Changes in Uploader TEST branch:
+- Dedicated `planningStartConsentHost` located BEFORE the Uploader Approved V1 status output inside the existing section 4, with an accessible independent V3 approval region.
+- `app.js` binds the independent consent UI to the dedicated container (not the V1 status panel itself), explicitly fails closed if missing, and shows cancellation/connection-validation errors instead of stale waiting text.
+- `styles.css` makes V3 consent prominent/sticky when shown; `tests/planning-start-visible-ui.test.js` enforces mount location and displayed error feedback.
+- Full Uploader regression CI 45850114683 SUCCESS. TEST deployment requested with marker commit 477798176faf8dc76f6b715ea555706dd1f9f353, run 45850187168. Verify completion before user retest.
+- This patch does not create SharePoint documents, does not touch Monday tasks, does not relax the two separate consents, and does not modify production Uploader root.
+User retest: close old Uploader popup, open freshly from Monday TEST, click read-only planning-inspect, verify START_NEXT and V3.0 button, click start once, then look in Uploader step 4 for a prominent "V3 DRAFT inditasanak jovahagyasa" button. If not visible or error, stop and share Monday/Uploader messages before retry.
