@@ -109,3 +109,23 @@ nem módosítja.
 - `versioned-draft-storage.js`: új, felülírásvédett V3 mentési motor `inspect / begin / append` műveletekkel. Megszakított manifest- és claim-létrehozás után a régi, ellenőrzött session ID-t folytatja, nem generál másodikat. A V3 indításához felhasználói megerősítés, friss teljes Monday-board-egyezés és igazolt V2 zárónyugta kell. A `readBoard` és a Graph-műveletek injektált függőségek, nincs közvetlen hálózati vagy Monday-írás.
 - Szintetikus regressziós tesztek: sérült nyugták, árva DRAFT-ok, megszakított SharePoint-mentés, parent-SHA ütközés, védett mező módosítása, eltérő Monday-board és hiányzó jóváhagyás.
 - Az új V3 motor **még nincs bekötve a Monday–Uploader böngészőkapcsolatba**, ezért nem indít felhasználói V3 DRAFT-ot és nem módosít projektadatot. Az általánosított V3 Approved/szinkron további feladat.
+
+## 2026-11-26: dinamikus projektállapot és következő tervezési ciklus
+
+**Nem V2 → V3 hardcoded átmenettel tesztelünk és nem verziószámra épül a döntés.**
+
+A `project-version-discovery.js` a projekt teljes SharePoint-verziókatalógusát olvassa, a `project-version-resolver.js` pedig a tényleges, igazolt állapotból választ műveletet. A `project-version-coordinator.js` az ellenőrzött verzióhoz kapcsolódó munkamenetmotort hívja, előtte újra ellenőrzi a katalógust. A döntési tesztek V0 → V1, V1 → V2, V2 → V3, V3 → V4 és V4 → V5 eseteket fednek le, és külön az aktív V1/V2/V3 folytatását is.
+
+| Ellenőrzött aktuális állapot | Döntés |
+|---|---|
+| Csak teljesen igazolt V0 | Új V1 indítható jóváhagyással |
+| Aktív Vn DRAFT | Ugyanaz a Vn/revízió folytatódik |
+| Megszakadt Vn munkamenet | Ugyanazt a Vn sessiont kell visszaellenőrizni és folytatni, soha nem új allokációval |
+| Jóváhagyás alatt vagy szinkron folyamatban | Vn véglegesítése/ellenőrzése, nem Vn+1 |
+| Teljesen igazolt Vn szinkron és egyező teljes board | V(n+1) indítható külön hozzájárulással |
+| Bizonytalan, hiányzó vagy ellentmondó nyugta | Tiltás és kézi ellenőrzés |
+| Ismeretlen verzió vagy nem teljes mappalista | Tiltás, nem verzióugrás |
+
+A meglévő V1/V2 adatstruktúrák használhatók az aktívállapot-ellenőrzésnél, de a régi fájlokat nem migráljuk. A V3 motor és az új általános állapotfelderítő bekötése a felhasználói Monday–Uploader kapcsolatra további integrációs feladat. A dinamikus döntési motor önmagában nem engedélyezi a V4+ írását addig, amíg a megfelelő forrás-, jóváhagyás- és szinkronbizonyíték-ellenőrző nem készült el.
+
+A tesztek szintetikus munkameneteket használnak, nem írnak a valódi TEST boardra vagy SharePoint-projektfájlokba.
