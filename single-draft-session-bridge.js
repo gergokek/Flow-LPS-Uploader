@@ -41,7 +41,7 @@ export function attachSingleDraftSessionBridge({win=window,
   if(event.data.kind==='v1-pilot-request'&&approvedForSyncState&&(!selectedSession||(selectedSession.planVersion===2&&event.data.action?.startsWith('v2-flow-')))){
    const x=event.data;
    if(!uuid(x.requestId)||pilotSeen.has(x.requestId)||
-      !['inspect','ahead','result','full-inspect','full-begin','full-reconcile','full-ahead','full-result','full-finish','v2-inspect','v2-begin','v2-open','v2-flow-inspect','v2-flow-begin','v2-flow-approve','v2-flow-ahead','v2-flow-result','v2-flow-finish','planning-inspect','planning-open','planning-begin'].includes(x.action)||
+      !['inspect','ahead','result','full-inspect','full-begin','full-reconcile','full-ahead','full-result','full-finish','v2-inspect','v2-begin','v2-open','v2-flow-inspect','v2-flow-begin','v2-flow-approve','v2-flow-ahead','v2-flow-result','v2-flow-finish','planning-inspect','planning-open','planning-begin','planning-open-v3-approved'].includes(x.action)||
       x.expectedApprovedSha256!==approvedForSyncState.sha256||
       x.expectedSessionId!==approvedForSyncState.sessionId||
       x.expectedRevision!==approvedForSyncState.revision)return;
@@ -66,6 +66,25 @@ export function attachSingleDraftSessionBridge({win=window,
       throw Error('A kivalsztott V3 munkamenet nem igazolt.');
      selectedSession={sessionId:selected.sessionId,planVersion:3,
       revision:selected.revision,sha256:selected.receipt.sha256};
+    }
+    if(x.action==='planning-open-v3-approved'){
+     const r=result;
+     if(r?.status!=='APPROVED_V3'||r.planVersion!==3||
+        r.boardId!==boardId||!uuid(r.sessionId)||
+        !Number.isSafeInteger(r.revision)||r.revision<0||
+        !/^[a-f0-9]{64}$/.test(r.sourceDraftSha256||'')||
+        r.receipt?.sha256!==r.sourceDraftSha256||
+        !/^[a-f0-9]{64}$/.test(r.approvedSha256||'')||
+        !/^[a-f0-9]{64}$/.test(r.approvalReceiptSha256||'')||
+        r.mondayWrites!==0||
+        !['READY_TO_SYNC','READY_TO_CLOSE','MANUAL_REVIEW_REQUIRED',
+           'V3_SYNC_COMPLETED'].includes(r.syncStatus))
+      throw Error('Jovahagyott V3 SharePoint-nyugtak nem egyeznek.');
+     selectedSession={sessionId:r.sessionId,planVersion:3,
+      revision:r.revision,sha256:r.sourceDraftSha256};
+     approved=true;
+     v3Approved={approvedSha256:r.approvedSha256,
+      approvalReceiptSha256:r.approvalReceiptSha256};
     }
     if(x.action==='v2-open'){
      const latest=result.revisions?.at(-1)||result.baseline;
