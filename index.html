@@ -18,6 +18,11 @@
 <label for="projectBoardId">Monday Board ID</label><input id="projectBoardId" type="text" inputmode="numeric" value="5107075373" maxlength="20" readonly aria-readonly="true">
 <details><summary>Projektmappák előkészítése (csak első használatkor)</summary><button type="button" id="setupProject" disabled>Projektmappák előkészítése a SharePointon</button>
 <output id="projectResult" role="status" aria-live="polite">Még nem történt projektmappa-ellenőrzés.</output></details>
+<details id="versionStoragePreview"><summary>Új tervverziók SharePoint-mappái (V3-tól)</summary>
+<p class="hint">A lezárt V1 és V2 fájlok az eredeti helyükön maradnak. Az új verziók külön <code>Versions/V0003/Drafts</code>, <code>Session</code>, <code>Approved</code> és <code>Sync</code> mappába kerülnek, majd V0004, V0005 stb. következik. Nincs automatikus fájlmozgatás vagy törlés.</p>
+<button type="button" id="setupVersionFolders" disabled>V3 mappastruktúra előkészítése (csak mappák)</button>
+<output id="versionFoldersResult" role="status" aria-live="polite">V3 nincs előkészítve ezen a felületen. Az előkészítés nem indít V3 DRAFT-ot.</output>
+</details>
 </section>
 <section id="singleDraftSession"><h2>3. DRAFT-munkamenet kiválasztása</h2>
 <p class="hint">A mappák már rendelkezésre állnak; a projekt kiinduló, szerkesztetlen, jóváhagyott V0 állapotának <code>Approved-Plans/approved-v0.json</code> fájlban kell léteznie. A V0 visszaellenőrzése után V1 indul, majd minden elfogadott módosítás önálló V1.1, V1.2… SharePoint-fájl. Ha a projektnek már van aktív munkamenete, csak annak folytatása engedélyezett. A Monday-board szerkesztés közben nem változik.</p>

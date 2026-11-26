@@ -22,6 +22,7 @@ import {mountFinalSyncReceiptAction} from './sync-final-receipt-ui.js';
 import {mountSingleTaskJournalControl} from './pilot-journal-ui.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import {createProjectStorage} from './project-storage.js';
+import {versionLayout} from './version-workspace-layout.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
 import {saveDraftTransfer} from './draft-save.js';
 import {verifyDownloadedDraft} from './draft-content-verifier.js';
@@ -40,6 +41,8 @@ const driveId='b!YBiCN3mDjkCA0zlGakoS1F6FNi-WzO5Ip7eBTLppUVCRBefvaJ27TYm2xryC37M
 const projectBoard=document.querySelector('#projectBoardId');
 const projectSetup=document.querySelector('#setupProject');
 const projectResult=document.querySelector('#projectResult');
+const versionFoldersButton=document.querySelector('#setupVersionFolders');
+const versionFoldersResult=document.querySelector('#versionFoldersResult');
 const createSingleDraft=document.querySelector('#startSingleDraft');
 const resumeSingleDraft=document.querySelector('#resumeSingleDraft');
 const singleDraftOutput=document.querySelector('#singleDraftResult');
@@ -59,6 +62,7 @@ function showAccount(account){
  graphButton.disabled=!account;
  document.querySelector('#listStoredSyncCheckpoints').disabled=!account||projectBoard.value.trim()!=='5107075373';
  projectSetup.disabled=!account;
+ versionFoldersButton.disabled=!account||projectBoard.value.trim()!=='5107075373';
  // The TEST session may only be started from the authenticated Monday opener.
  const connected=!!singleBridge?.active&&singleBridge.ready();
  createSingleDraft.disabled=!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
@@ -159,6 +163,32 @@ projectSetup.addEventListener('click',async()=>{
   projectResult.textContent='Projekt tarhely ellenorizve: '+result.path+'\\nAlmappak: '+result.folders.join(', ')+'\\nIgazolas: mappa-metaadatok. Monday adatok valtozatlanok.';
  }catch(err){projectResult.textContent='A projekt tarhely elokeszitese sikertelen: '+(err?.message||'ismeretlen hiba');}
  finally{projectBusy=false;projectSetup.disabled=!msal.getAllAccounts().length;}
+});
+// This intentionally does not start V3 or write a manifest: folders only.
+versionFoldersButton.addEventListener('click',async()=>{
+ if(projectBusy)return;
+ const boardId=projectBoard.value.trim();
+ if(boardId!=='5107075373')throw Error('Version folder provisioning is TEST-only.');
+ const account=msal.getAllAccounts()[0];
+ if(!account){versionFoldersResult.textContent='Microsoft-bejelentkezes szukseges.';return;}
+ const layout=versionLayout(boardId,3);
+ if(!window.confirm('Csak az ures '+layout.versionRoot+' es 4 almappaja jon letre. A V1/V2 fajlokat nem mozgatjuk, V3 munkamenetet nem inditunk. Folytatod?'))return;
+ projectBusy=true;versionFoldersButton.disabled=true;projectSetup.disabled=true;
+ versionFoldersResult.textContent='V3 SharePoint mappak ellenorzese...';
+ try{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+  let auth;try{auth=await msal.acquireTokenSilent(request);}
+  catch(err){if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(err?.errorCode))throw err;
+   auth=await msal.acquireTokenPopup(request);}
+  if(msal.getAllAccounts()[0]?.homeAccountId!==account.homeAccountId)
+   throw Error('Microsoft-fiok megvaltozott.');
+  const store=createProjectStorage({driveId,getAccessToken:async()=>auth.accessToken});
+  const proof=await store.ensureVersion(boardId,3);
+  versionFoldersResult.textContent='V3 mappak elokeszitve: '+proof.path+'\\nAlmappak: '+proof.folders.join(', ')+
+   '\\nV1/V2 fajlok erintetlenek; V3 DRAFT nincs elinditva; Monday-iras: 0.';
+ }catch(error){versionFoldersResult.textContent='V3 mappaellenorzes sikertelen: '+String(error?.message||error);}
+ finally{projectBusy=false;versionFoldersButton.disabled=!msal.getAllAccounts().length;
+  projectSetup.disabled=!msal.getAllAccounts().length;}
 });
 document.querySelector('#draftTransferFile').addEventListener('change',async event=>{
  draftTransferText=null;draftSaveButton.disabled=true;draftSaveResult.textContent='Nincs DRAFT feltoltes inditva.';
