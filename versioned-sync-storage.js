@@ -4,6 +4,7 @@
 import {pilotAssert as ok,pilotUuid,pilotHex,pilotFileSha,pilotStable as stable,
  pilotFingerprint,pilotSha} from './v1-pilot-contract.js';
 import {versionFilePath,lifecycleFileName} from './version-workspace-layout.js';
+import {inspectV4StartReadiness} from './versioned-next-cycle-proof.js';
 import {checkVersionedApprovalFile} from './versioned-approval-sync-contract.js';
 import {inspectVersionedSyncCycle,requireVersionedSyncBoard,
  makeVersionedSyncAhead,makeVersionedSyncFinal,
@@ -221,5 +222,18 @@ export function createVersionedSyncStore({
    return saved;
   });
  }
- return Object.freeze({inspect,begin,ahead,result,finish});
+ async function readiness(args={}){
+  enter();try{
+   const {report,state}=await current(args);
+   ok(state.status==='V3_SYNC_COMPLETED'&&args.editorId===state.model.editorId&&
+    args.createdBy===state.model.createdBy,
+    'V4: V3 szinkron nincs teljesen lezarva.');
+   await checkPinned(args,state.model);guard();
+   const board=await readBoard(args);guard();
+   return inspectV4StartReadiness({
+    report,verifiedSource:await inspectModel(args),liveBoard:board,
+    editorId:args.editorId,createdBy:args.createdBy,now:now().getTime()});
+  }finally{leave();}
+ }
+ return Object.freeze({inspect,begin,ahead,result,finish,readiness});
 }
