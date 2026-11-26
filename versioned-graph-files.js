@@ -1,4 +1,4 @@
-// Microsoft Graph adapter for versioned V3 TEST session files.
+// Microsoft Graph adapter for isolated TEST V3 versioned artifacts.
 // No Monday writer, no user-controlled paths and no overwrite of existing JSON.
 import {versionLayout,versionFilePath} from './version-workspace-layout.js';
 import {createProjectStorage} from './project-storage.js';
@@ -19,17 +19,18 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
  const guard=()=>ok(assertCurrent()===true,'A V3 Microsoft kapcsolat megvaltozott.');
  const checkedPath=path=>{
   ok(typeof path==='string'&&
-   [layout.session,layout.drafts].some(prefix=>path.startsWith(prefix+'/'))&&
+   [layout.session,layout.drafts,layout.approved,layout.sync].some(prefix=>path.startsWith(prefix+'/'))&&
    !path.includes('..')&&/^[A-Za-z0-9/_\-.]+$/.test(path),
    'Tiltott V3 SharePoint fajlutvonal.');
   const name=path.split('/').at(-1),folder=path.slice(0,-name.length-1);
-  ok(versionFilePath({boardId,version,kind:folder===layout.session?'session':'drafts',
+  ok(versionFilePath({boardId,version,kind:({[layout.session]:'session',[layout.drafts]:'drafts',
+    [layout.approved]:'approved',[layout.sync]:'sync'})[folder],
    name})===path,'Eltero V3 fajlutvonal.');
   return {name,folder};
  };
  const checkedFolder=path=>{
-  ok(path===layout.session||path===layout.drafts,
-   'V3 csak Session/Drafts alatt olvashato.');
+  ok([layout.session,layout.drafts,layout.approved,layout.sync].includes(path),
+   'A V3 verzio idegen SharePoint mappaja nem olvashato.');
   return path;
  };
  async function graph(path,options={}){
@@ -106,13 +107,27 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
   ok(document&&typeof document==='object'&&!Array.isArray(document)&&
    document.schemaVersion===1&&document.boardId===boardId,
    'V3 fajl nem ervenyes dokumentum.');
-  const valid=(target.name==='version-info.json'&&
+  // Every create-only destination is restricted to its lifecycle folder.
+  // Sync remains READ-ONLY until the separate verified journal writer exists.
+  const valid=(target.folder===layout.session&&target.name==='version-info.json'&&
     document.format==='mflow-plan-version-index'&&document.planVersion===3)||
-   (target.name==='active-session-v3.json'&&document.format==='mflow-versioned-session'&&
-    document.planVersion===3)||
-   (/^draft-v3(?:-r[0-9]{6})?\.json$/.test(target.name)&&
-    document.format==='flow-lps-draft'&&document.session?.planVersion===3);
-  ok(valid,'Nem illeszkedik a V3 fajlnev es a dokumentumtipus.');
+   (target.folder===layout.session&&target.name==='active-session-v3.json'&&
+    document.format==='mflow-versioned-session'&&document.planVersion===3)||
+   (target.folder===layout.drafts&&/^draft-v3(?:-r[0-9]{6})?\.json$/.test(target.name)&&
+    document.format==='flow-lps-draft'&&document.session?.planVersion===3)||
+   (target.folder===layout.session&&target.name==='session-v3-freeze.json'&&
+    document.format==='mflow-versioned-approval-freeze'&&
+    document.planVersion===3&&document.status==='APPROVAL_FROZEN'&&
+    document.userConfirmed===true&&document.mondayWrites===0)||
+   (target.folder===layout.session&&target.name==='session-v3-approved.json'&&
+    document.format==='mflow-versioned-approval-receipt'&&
+    document.planVersion===3&&document.status==='APPROVED_PLAN_STORED'&&
+    document.mondayWrites===0)||
+   (target.folder===layout.approved&&target.name==='approved-v3.json'&&
+    document.format==='flow-lps-approved-plan'&&document.planVersion===3&&
+    document.status==='APPROVED'&&document.isApprovedPlan===true&&
+    document.mondaySyncAllowed===false);
+  ok(valid,'Nem illeszkedik a V3 fajlnev, celmappa es dokumentumtipus.');
   const bytes=new TextEncoder().encode(JSON.stringify(document,null,2)+'\n');
   ok(bytes.byteLength>0&&bytes.byteLength<=MAX_DRAFT_BYTES,
    'A V3 JSON meghaladja a biztonsagi meretkorlatot.');
