@@ -129,3 +129,8 @@ Safety changes:
 - Test coverage in `tests/planning-inspection-diagnostics.test.js`, `tests/planning-read-steps.test.mjs`, and `tests/project-live-state-adapter.test.js`.
 - No live Monday/SharePoint project writes, no deletions, no token access. The exact cause of failed network access is still UNKNOWN pending the newly labeled diagnostic; avoid claiming it is CORS, auth or Graph without user evidence.
 - Next user action after TEST deployment: close old Uploader, fresh Monday TEST/Uploader connection, run only Uploader V3 inventory (0 writes) then Monday planning-inspect (0 writes); copy two status messages. No V3 start until reviewed.
+
+
+## Current-project TEST focus and V3 start correction — 2026-11-26
+
+The consolidated source of truth is [MFLOW_DEVELOPMENT_ROADMAP.md](MFLOW_DEVELOPMENT_ROADMAP.md). Its latest section records the current TEST trigger, two-phase consent, fresh board verification, verified read cache, Approved V3 projection and acceptance gate. Do not rerun the obsolete V1/V2 pilot or writeback controls. Await paired TEST deployment success; no actual project write was performed during implementation.
