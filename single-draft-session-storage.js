@@ -1,4 +1,8 @@
 import {createV2ApprovalSyncStore} from './v2-approval-sync-storage.js';
+import {inspectV2Cycle} from './v2-approval-sync-contract.js';
+import {inspectFullSyncEvidence} from './v1-full-sync-contract.js';
+import {createVersionFolderCatalog} from './project-version-folder-catalog.js';
+import {projectVerifiedCycleState} from './project-live-state-adapter.js';
 import {createVersionedDraftStore} from './versioned-draft-storage.js';
 import {createVersionedGraphFiles} from './versioned-graph-files.js';
 import {createV2SessionStore} from './v2-session-storage.js';
@@ -542,8 +546,35 @@ export function createSingleDraftSessionStore({boardId,driveId,
     'A V2 kiindulo bizonyitek megvaltozott.');
    check();
   }});
+ // Read-only CURRENT PROJECT discovery. No version is allocated here.
+ const versionFolders=createVersionFolderCatalog({boardId,driveId,getAccessToken,fetcher,
+  assertCurrent:()=>{check();return true;}});
+ async function inspectPlanningState({createdBy,editorId,boardFingerprint}={}){
+  check();requireValid(typeof createdBy==='string'&&createdBy.length>0&&
+   typeof editorId==='string'&&/^\\d+$/.test(editorId)&&
+   typeof boardFingerprint==='string'&&boardFingerprint.length>0,
+   'Friss Monday-board es bejelentkezett szerkeszto szukseges.');
+  const args={createdBy,editorId};
+  const v0=await readV0();check();
+  const v1Report=await full.inspect(args);
+  const v1State=await inspectFullSyncEvidence(v1Report.evidence,editorId,now().getTime());check();
+  const v2Report=await v2Flow.inspect(args);
+  const v2State=await inspectV2Cycle(v2Report,editorId,createdBy,now().getTime());check();
+  const oldV1Claim=await readFile(draftPath('active-session.json'));check();
+  requireValid(!!oldV1Claim,'Hianyzo eredeti V1 munkamenetnyugta.');
+  // Legacy versions are passed ONLY after their complete independent validation.
+  const catalog=await versionFolders.inspect({legacyVersions:[1,2]});check();
+  const v3Report=catalog.versions.includes(3)?
+   await nextVersion.inspect(args):null;
+  check();
+  const result=projectVerifiedCycleState({boardId,approvedV0:v0,
+   oldV1Claim,v1Report,v1State,v2Report,v2State,v3Report,
+   folderCatalog:catalog,boardFingerprint});
+  return structuredClone({...result,checkedAt:now().toISOString(),
+   readOnly:true,mondayWrites:0});
+ }
  return Object.freeze({start,resume,append,readV0,reviewApproval,approve,
   inspectApprovedSync,prepareApprovedSync,
   inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
-  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow,nextVersion});
+  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow,nextVersion,inspectPlanningState});
 }
