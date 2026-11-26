@@ -10,6 +10,9 @@ import {inspectVersionedSyncCycle,requireVersionedSyncBoard,
  validateVersionedSyncAhead,validateVersionedSyncResult}
  from './versioned-sync-contract.js';
 const same=(a,b)=>stable(a)===stable(b),copy=x=>structuredClone(x);
+const plainModel=m=>copy({...m,names:undefined});
+const publicReport=r=>copy({...r,model:plainModel(r.model)});
+const publicState=s=>copy({...s,model:plainModel(s.model)});
 const index=files=>stable(files.map(f=>({name:f.name,id:f.id,eTag:f.eTag}))
  .sort((a,b)=>a.name.localeCompare(b.name)));
 
@@ -97,7 +100,7 @@ export function createVersionedSyncStore({
   enter();try{
    const out=await current(args);
    cached=out;
-   return {report:copy(out.report),state:copy(out.state),readOnly:true,mondayWrites:0};
+   return {report:publicReport(out.report),state:publicState(out.state),readOnly:true,mondayWrites:0};
   }finally{leave();}
  }
  async function board(args,s){
@@ -136,7 +139,7 @@ export function createVersionedSyncStore({
     approvedSha256:s.approvedSha256,expires:now().getTime()+3600000,
     inFlight:null,spent:new Set()};
    cached=value;
-   return {report:copy(value.report),state:copy(s),mondayWrites:0};
+   return {report:publicReport(value.report),state:publicState(s),mondayWrites:0};
   }catch(e){blocked=true;throw e;}finally{leave();}
  }
  function authorised(args){
