@@ -129,3 +129,10 @@ A `project-version-discovery.js` a projekt teljes SharePoint-verziókatalógusá
 A meglévő V1/V2 adatstruktúrák használhatók az aktívállapot-ellenőrzésnél, de a régi fájlokat nem migráljuk. A V3 motor és az új általános állapotfelderítő bekötése a felhasználói Monday–Uploader kapcsolatra további integrációs feladat. A dinamikus döntési motor önmagában nem engedélyezi a V4+ írását addig, amíg a megfelelő forrás-, jóváhagyás- és szinkronbizonyíték-ellenőrző nem készült el.
 
 A tesztek szintetikus munkameneteket használnak, nem írnak a valódi TEST boardra vagy SharePoint-projektfájlokba.
+
+## 2026-11-26: élő SharePoint-verziókatalógus (csak olvasás)
+
+- `project-version-folder-catalog.js` tényleges Graph-mappalista-lekérést, lapozásvédelmet, duplikátum- és hiányellenőrzést ad; a meglévő TEST board V1/V2 örökölt útvonalait külön, kifejezett bemenetként fogadja. A Monday alkalmazásban ugyanaz a forrás elérhető `src/adapter/project-version-folder-catalog.js` néven.
+- A mappák számozása és a létező SharePoint-állományok **nem jelentenek önmagukban bizonyított aktív munkamenetet**. A `project-version-discovery.js` minden talált verzióhoz külön, teljes bizonyítékellenőrzőt vár el (SHA/eTag, forráslánc, végső board-nyugta). Új V3+ mappa előkészítése V3 claim/manifest nélkül ezért addig blokkolhatja a globális állapotválasztást, amíg az üres mappák biztonságos elkülönítése nincs bekötve. Ilyen állapotból nem szabad automatikusan új verziót indítani.
+- A `project-version-resolver.js` és a `project-version-coordinator.js` nem hardcode-olt V2→V3 utat használ: teljes, bizonyított verziókatalógusból tudja kiválasztani az aktív verzió folytatását, egy bizonyított lezárás után a következőt, vagy bizonytalan állapotban az írás tiltását.
+- **Még nem kész:** a tényleges V1/V2/új V3 bizonyítékellenőrzők és a valós Monday-board-ellenőrzés végleges összekötése a katalógussal; az üres, előkészített V3+ mappák ártalmatlan megkülönböztetése; az új „Aktuális terv folytatása” gomb. Ez a csomag fejlesztői forrás és automatikus teszt, nem felhasználói V3-indítás.
