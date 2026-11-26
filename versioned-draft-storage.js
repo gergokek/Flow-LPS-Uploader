@@ -42,10 +42,13 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
  }
  async function scan(model){
   guard();const n=successorNames(version);
-  const [sessionFiles,draftFiles]=await Promise.all([
-   list(n.layout.session),list(n.layout.drafts)]);
-  ok(Array.isArray(sessionFiles)&&Array.isArray(draftFiles),
+  const [sessionFiles,draftFiles,approvedFiles,syncFiles]=await Promise.all([
+   list(n.layout.session),list(n.layout.drafts),
+   list(n.layout.approved),list(n.layout.sync)]);
+  ok([sessionFiles,draftFiles,approvedFiles,syncFiles].every(Array.isArray),
    'Hibas V3 SharePoint fajllista.');
+  ok(approvedFiles.length===0&&syncFiles.length===0,
+   'V3 Approved/Sync fajl letezik: a DRAFT motor nem ellenorizheti, tovabblepes tiltva.');
   for(const group of [sessionFiles,draftFiles]){
    ok(new Set(group.map(f=>f.name)).size===group.length&&
     new Set(group.map(f=>f.id)).size===group.length,
