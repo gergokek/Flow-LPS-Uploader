@@ -7,6 +7,7 @@ import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
 import {verifiedVersionedSelection} from './versioned-session-selection.js';
 import {requestPlanningStartConsent} from './planning-start-consent.js';
 import {runPlanningStartFlow} from './planning-start-flow.js';
+import {createPlanningStartPermit} from './planning-start-permit.js';
 import {requestVersionedApprovalConsent} from './versioned-approval-consent-ui.js';
 import {requestVersionedSyncConsent} from './versioned-sync-consent-ui.js';
 import {createImmutableDraftQueue} from './single-draft-write-queue.js';
@@ -59,6 +60,7 @@ const singleDraftOutput=document.querySelector('#singleDraftResult');
 const inspectApprovedV1Button=document.querySelector('#inspectApprovedV1');
 const approvedV1SyncOutput=document.querySelector('#approvedV1SyncResult');
 const planningStartConsentHost=document.querySelector('#planningStartConsentHost');
+const planningStartPermit=createPlanningStartPermit();
 let draftTransferText=null;
 const draftSaveButton=document.querySelector('#saveDraft');
 const draftSaveResult=document.querySelector('#draftSaveResult');
@@ -583,7 +585,7 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
    throw error;
   }
  }
- if(request.action==='planning-begin'){
+ if(['planning-consent','planning-begin'].includes(request.action)){
   const store=singleSyncStore,linked=singleSyncSelected,opener=window.opener;
   const current=()=>store===singleSyncStore&&linked===singleSyncSelected&&
    !singleSession&&!singleSessionQueue&&
@@ -594,16 +596,40 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   if(!current()||payload.mondayConfirmed!==true)
    throw Error('A Monday tervinditasi jovahagyasa vagy kapcsolata hianyzik.');
   const args={...payload,createdBy,editorId:payload.editorId};
-  const state=await store.planningActions.inspect(args);
-  if(!current()||state.action!=='START_NEXT'||state.boardMatches!==true||
-    state.planVersion!==3||
-    state.predecessorCompletionSha256!==payload.expectedPredecessorSha256||
-    state.verifiedVersionCount!==state.planVersion-1)
-   throw Error('Nem teljes vagy megvaltozott a V2 utani projektallapot.');
-  if(!planningStartConsentHost)
-   throw Error('A V3 Uploader-jovahagyas felulete nem erheto el. Tervinditas tiltva.');
+  if(!testUi)throw Error('A V3 tervinditas csak a TEST Uploaderben lehetseges.');
+  if(request.action==='planning-consent'){
+   planningStartPermit.clear();
+   approvedV1SyncOutput.textContent='V3.0: az inditas forrasanak ellenorzese (0 iras).';
+   try{
+    const state=await store.planningActions.inspect(args);
+    if(!current()||state.action!=='START_NEXT'||state.boardMatches!==true||
+      state.planVersion!==3||
+      state.predecessorCompletionSha256!==payload.expectedPredecessorSha256||
+      state.verifiedVersionCount!==state.planVersion-1)
+     throw Error('Nem teljes vagy megvaltozott a V2 utani projektallapot.');
+    if(!planningStartConsentHost)
+     throw Error('A kulon Uploader-jovahagyas felulete nem erheto el.');
+    approvedV1SyncOutput.textContent='V3.0: kulon Uploader-jovahagyas szukseges. SharePoint-iras meg nem indult.';
+    const confirmed=await requestPlanningStartConsent({
+     host:planningStartConsentHost,state,isCurrent:current});
+    const permit=planningStartPermit.issue({state,args,confirmed,isCurrent:current});
+    approvedV1SyncOutput.textContent='Mindket jovahagyas megtortent. A Monday most friss teljes board-ellenorzest vegez. Meg nem indult SharePoint-iras.';
+    return permit;
+   }catch(error){
+    planningStartPermit.clear();
+    approvedV1SyncOutput.textContent='A tervinditasi jovahagyas nem igazolt: '+String(error?.message||error)+'. Meg nem indult SharePoint-iras.';
+    throw error;
+   }
+  }
+  let authorization;
+  try{authorization=planningStartPermit.consume(args);}
+  catch(error){
+   approvedV1SyncOutput.textContent='Az inditasi engedely nem ervenyes: '+String(error?.message||error)+'. Nem indult SharePoint-iras.';
+   throw error;
+  }
+  const state=authorization.state;
   const phaseMessage={
-   WAITING_FOR_UPLOADER_CONFIRMATION:'V3.0: kulon Uploader-jovahagyas szukseges a 4. szakaszban. SharePoint-iras meg nem indult.',
+   WAITING_FOR_UPLOADER_CONFIRMATION:'V3.0: az egyszeri ketoldali engedely ellenorzese. SharePoint-iras meg nem indult.',
    UPLOADER_CONFIRMED:'V3.0: mindket jovahagyas megerositve. Uj tervinditasi ellenorzes kovetkezik.',
    CREATING_OR_VERIFYING_SHAREPOINT:'V3.0: SharePoint V3 mappak es munkamenetfajlok letrehozasa / ellenorzese folyamatban. Az Uploader es Monday ablakot tartsd nyitva.',
    READBACK_OF_V3_RECEIPTS:'V3.0: SharePoint fajlok letrehozasi valasza megerkezett; teljes DRAFT es SHA/eTag visszaellenorzes.',
@@ -616,8 +642,9 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   try{
    selected=await runPlanningStartFlow({
     inspected:state,isCurrent:current,
-    consent:()=>requestPlanningStartConsent({
-     host:planningStartConsentHost,state,isCurrent:current}),
+    // Explicit Uploader click already took place in planning-consent; consume
+    // accepts it exactly once, only with the fresh post-consent board proof.
+    consent:async()=>authorization.uploaderConfirmed,
     execute:()=>store.planningActions.execute({...args,
      mondayConfirmed:true,uploaderConfirmed:true}),
     select:run=>verifiedVersionedSelection(run.report),
