@@ -545,16 +545,41 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   if(projectBoard.value.trim()!=='5107075373'||!singleBridge.active||
      !singleBridge.ready()||singleSyncSelected!==selected)
    throw Error('A tervallapot ellenorzes kapcsolata megszakadt.');
-  approvedV1SyncOutput.textContent='Projektverziok es teljes SharePoint-bizonyitekok ellenorzese. Csak olvasas.';
-  const state=await store.inspectPlanningState({createdBy,
-   editorId:payload.editorId,boardFingerprint:payload.boardFingerprint});
-  if(singleSyncSelected!==selected||singleSyncStore!==store||
-     msal.getAllAccounts()[0]?.homeAccountId!==createdBy)
-   throw Error('A Microsoft-fiok vagy SharePoint kapcsolat megvaltozott.');
-  approvedV1SyncOutput.textContent='Projektallapot: '+state.status+
-   '; kovetkezo muvelet: '+state.action+'; verzio: '+(state.planVersion??'-')+
-   '; letezo verzio: '+state.verifiedVersionCount+'; Monday iras: 0.';
-  return state;
+  const labels={
+   V0_APPROVED:'V0 Approved Plan es SHA/eTag ellenorzese',
+   V1_SYNC_JOURNAL:'V1 teljes SharePoint szinkronnaplo ellenorzese',
+   V1_SYNC_PROOF:'V1 zaro- es board-bizonyitek ellenorzese',
+   V2_SYNC_JOURNAL:'V2 teljes SharePoint szinkronnaplo ellenorzese',
+   V2_SYNC_PROOF:'V2 vegnyugta es teljes board bizonyiteka',
+   V1_SESSION_CLAIM:'Eredeti V1 munkamenet-azonosito ellenorzese',
+   VERSION_FOLDER_CATALOG:'SharePoint verziofak es V3 mappak listazasa',
+   V3_SESSION_CHAIN:'V3 teljes munkamenet es DRAFT nyugtalanc ellenorzese',
+   PROJECT_LINEAGE:'V0-V3 project lineage es aktualis board osszevetese'
+  };
+  approvedV1SyncOutput.textContent='Projektterv: csak olvasasi ellenorzes indul. Monday-iras: 0.';
+  let phase='NOT_STARTED';
+  try{
+   const state=await store.inspectPlanningState({createdBy,
+    editorId:payload.editorId,boardFingerprint:payload.boardFingerprint,
+    onPhase:next=>{
+     phase=next;
+     approvedV1SyncOutput.textContent='Projektterv ellenorzes ['+next+']: '+
+      (labels[next]||'Ellenorzes')+
+      '. Csak olvasas; Monday-iras: 0. Ne indits uj tervet az eredmeny elott.';
+    }});
+   if(singleSyncSelected!==selected||singleSyncStore!==store||
+      msal.getAllAccounts()[0]?.homeAccountId!==createdBy)
+    throw Error('A Microsoft-fiok vagy SharePoint kapcsolat megvaltozott.');
+   approvedV1SyncOutput.textContent='Projektallapot: '+state.status+
+    '; kovetkezo muvelet: '+state.action+'; verzio: '+(state.planVersion??'-')+
+    '; letezo verzio: '+state.verifiedVersionCount+'; Monday iras: 0.';
+   return state;
+  }catch(error){
+   approvedV1SyncOutput.textContent='TERVELLENORZES MEGALLT ['+phase+'] (csak olvasas): '+
+    String(error?.message||error).slice(0,460)+
+    '\nA korabbi V3 inditas sikeressege nem igazolt. Ne indits uj V3-at; ellenorizd kulon a V3 fajllistat.';
+   throw error;
+  }
  }
  if(request.action==='planning-begin'){
   const store=singleSyncStore,linked=singleSyncSelected,opener=window.opener;
