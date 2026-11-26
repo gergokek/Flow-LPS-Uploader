@@ -573,12 +573,14 @@ function singleStoreFor(account,boardId){
    msal.getAllAccounts()[0]?.tenantId===tenant});
 }
 function installV2EditorQueue(store,selected){
+ const version=selected.planVersion;
  const queue=createImmutableDraftQueue({persist:async work=>{
   const proof=await store.append(work);singleSession=proof;return proof;
  },onState:state=>{
-  singleDraftOutput.textContent=state.blocked?'V2 DRAFT mentes leallitva: '+state.blocked:
-   state.active?'V2.'+(state.verifiedRevision+1)+' feltoltes es visszaellenorzes...':
-   'V2'+(state.verifiedRevision?'.'+state.verifiedRevision:'')+' DRAFT visszaellenorizve. Monday-iras: 0.';
+  singleDraftOutput.textContent=state.blocked?'V'+version+' DRAFT mentes leallitva: '+state.blocked:
+   state.active?'V'+version+'.'+(state.verifiedRevision+1)+' feltoltes es visszaellenorzes...':
+   'V'+version+(state.verifiedRevision?'.'+state.verifiedRevision:'')+
+   ' DRAFT visszaellenorizve. Monday-iras: 0.';
  }});
  queue.open({sessionId:selected.sessionId,revision:selected.revision,sha256:selected.receipt.sha256});
  singleStore=store;singleSession=selected;singleSessionQueue=queue;
