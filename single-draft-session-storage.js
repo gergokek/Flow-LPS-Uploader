@@ -3,6 +3,7 @@ import {inspectV2Cycle} from './v2-approval-sync-contract.js';
 import {inspectFullSyncEvidence} from './v1-full-sync-contract.js';
 import {createVersionFolderCatalog} from './project-version-folder-catalog.js';
 import {projectVerifiedCycleState} from './project-live-state-adapter.js';
+import {createPlanningActionGate} from './project-planning-action-gate.js';
 import {createVersionedDraftStore} from './versioned-draft-storage.js';
 import {createVersionedGraphFiles} from './versioned-graph-files.js';
 import {createV2SessionStore} from './v2-session-storage.js';
@@ -573,8 +574,16 @@ export function createSingleDraftSessionStore({boardId,driveId,
   return structuredClone({...result,checkedAt:now().toISOString(),
    readOnly:true,mondayWrites:0});
  }
+ // Command routing is separate from the read-only planning-inspect RPC.
+ // The UI must not expose execute() until both confirmation screens and the
+ // Monday board readback handoff have independent end-to-end coverage.
+ const planningActions=createPlanningActionGate({
+  inspectCurrent:args=>inspectPlanningState(args),
+  storeForVersion:async version=>version===3?nextVersion:null,
+  check,now:()=>now().getTime()
+ });
  return Object.freeze({start,resume,append,readV0,reviewApproval,approve,
   inspectApprovedSync,prepareApprovedSync,
   inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
-  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow,nextVersion,inspectPlanningState});
+  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow,nextVersion,inspectPlanningState,planningActions});
 }
