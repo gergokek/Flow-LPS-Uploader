@@ -9,7 +9,7 @@ function fixture({folders=[],missing=false,paginate=false,prepared=[]}={}){
   assert.equal(opts.method,'GET');
   if(url.includes('/root:')){
    if(missing)return respond(404,{});
-   const match=url.match(/V(\\d{4})\\/(Session|Drafts|Approved|Sync)/);
+   const match=url.match(/V(\d{4})\/(Session|Drafts|Approved|Sync)/);
    if(match)return respond(200,{id:'sub-'+Number(match[1])+'-'+match[2],
     folder:{},parentReference:{driveId:'b!sample'}});
    return respond(200,{id:'parent',folder:{},parentReference:{driveId:'b!sample'}});
@@ -22,7 +22,7 @@ function fixture({folders=[],missing=false,paginate=false,prepared=[]}={}){
      id:'folder-'+(start+i),folder:{}})),...(paginate&&start+1<folders.length?
        {'@odata.nextLink':root+'/items/parent/children?page=2'}:{})});
    }
-   const parts=/\\/items\\/sub-(\\d+)-(Session|Drafts|Approved|Sync)\\/children/.exec(url);
+   const parts=/\/items\/sub-(\d+)-(Session|Drafts|Approved|Sync)\/children/.exec(url);
    assert.ok(parts,'Unexpected version folder listing: '+url);
    return respond(200,{value:prepared.includes(Number(parts[1]))?[]:
     (parts[2]==='Session'?[{id:'evidence-'+parts[1],name:'version-info.json',file:{}}]:[])});
