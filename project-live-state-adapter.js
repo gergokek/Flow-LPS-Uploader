@@ -51,6 +51,20 @@ export function projectVerifiedCycleState({boardId,approvedV0,oldV1Claim,
    planVersion:2,reason:'V2 approval/sync is not complete.',readOnly:true,mondayWrites:0});
  }
  const versions=[a1,a2];
+ // A manifest/claim without the final DRAFT receipt is evidence of a
+ // previously attempted V3 creation, not proof that a new start is safe.
+ // Never allocate a second session or infer ACTIVE from a folder.
+ if(folderCatalog.versions.includes(3)&&
+    ['START_INCOMPLETE','APPROVAL_FROZEN'].includes(v3Report?.status)){
+  return Object.freeze({status:'BLOCKED',action:'MANUAL_REVIEW',
+   planVersion:3,revision:v3Report.revision??null,verifiedVersionCount:2,
+   boardMatches:boardFingerprint===boardExpected,
+   preparedFolders:[...(folderCatalog.preparedFolders||[])],
+   predecessorCompletionSha256:a2.completionSha256,
+   reason:'A V3 SharePoint munkamenet elkezdodott vagy zarolas alatt van ('+
+    v3Report.status+'). Uj V3 nem indithato: elozo V3 fajlok es nyugtak '+
+    'kezi ellenorzese szukseges.',readOnly:true,mondayWrites:0});
+ }
  if(folderCatalog.versions.includes(3)){
   ok(a2.status==='SYNC_COMPLETED'&&v3Report?.status==='ACTIVE'&&
    v3Report?.planVersion===3&&
