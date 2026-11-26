@@ -66,3 +66,9 @@ test('unknown V4 folder blocks unsupported transition rather than silently skipp
  assert.throws(()=>projectVerifiedCycleState({...options,
   folderCatalog:{complete:true,versions:[1,2,3,4]}}));
 });
+
+test('the selected next plan carries the independently verified predecessor sync SHA',()=>{
+ const x=projectVerifiedCycleState(options);
+ assert.equal(x.action,'START_NEXT');
+ assert.equal(x.predecessorCompletionSha256,v2End);
+});
