@@ -87,7 +87,9 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
   const state=await inspectSuccessorArtifacts(data,now().getTime());
   // The V3 approval engine is not yet connected to this generic store.
   // A freeze or approval artifact means no new draft changes are permitted.
-  return {...data,...state,hasFreeze:!!freeze,hasApproval:!!approval,
+  return {...data,...state,
+   status:(freeze||approval||closure)?'APPROVAL_FROZEN':state.status,
+   hasFreeze:!!freeze,hasApproval:!!approval,
    hasClosure:!!closure,planVersion:version,taskCount:model.taskCount,
    mondayWrites:0};
  }
