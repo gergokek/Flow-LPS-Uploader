@@ -6,10 +6,11 @@ const uuid=s=>typeof s==='string'&&/^[a-f0-9-]{36}$/i.test(s);
 export function attachSingleDraftSessionBridge({win=window,
  onSaveRevision=async()=>{},onApprovePlan=async()=>{},
  onPrepareSync=async()=>{},onPilotRequest=async()=>{throw Error('V1 pilot is not connected.');},
- onVersionedApproval=async()=>{throw Error('V3 Approved Plan nincs bekotve.');},onStatus=()=>{}}={}){
+ onVersionedApproval=async()=>{throw Error('V3 Approved Plan nincs bekotve.');},
+ onVersionedSync=async()=>{throw Error('V3 Sync nincs bekotve.');},onStatus=()=>{}}={}){
  if(typeof onSaveRevision!=='function'||typeof onApprovePlan!=='function'||
     typeof onPrepareSync!=='function'||typeof onPilotRequest!=='function'||
-    typeof onVersionedApproval!=='function'||
+    typeof onVersionedApproval!=='function'||typeof onVersionedSync!=='function'||
     typeof onStatus!=='function'||
     !win||typeof win.addEventListener!=='function')
   throw Error('Érvénytelen TEST munkamenet-átadás.');
@@ -19,7 +20,8 @@ export function attachSingleDraftSessionBridge({win=window,
   return Object.freeze({active:false,ready:false,close:()=>{},
    selected:()=>false,approvedForSync:()=>false,saved:()=>false,failed:()=>false});
  let origin=null,closed=false,selectedSession=null,working=false,
-  approved=false,blocked=false,approvedForSyncState=null,syncPrepared=false;
+  approved=false,blocked=false,approvedForSyncState=null,syncPrepared=false,
+  v3Approved=null;
  const pilotSeen=new Set();let pilotAheadUsed=false,pilotResultUsed=false;
  const emit=(kind,extras={})=>{
   if(closed||!origin||!win.opener)return false;
@@ -123,6 +125,38 @@ export function attachSingleDraftSessionBridge({win=window,
    }finally{working=false;}
    return;
   }
+  if(event.data.kind==='versioned-sync-request'&&
+     selectedSession?.planVersion===3&&v3Approved&&approved){
+   const x=event.data,requestId=x.requestId;
+   if(!uuid(requestId)||pilotSeen.has(requestId)||
+      !['inspect','begin','ahead','result','finish','v4-ready'].includes(x.action)||
+      x.expectedSessionId!==selectedSession.sessionId||
+      x.expectedRevision!==selectedSession.revision||
+      x.expectedDraftSha256!==selectedSession.sha256||
+      x.expectedApprovedSha256!==v3Approved.approvedSha256||
+      x.expectedApprovalReceiptSha256!==v3Approved.approvalReceiptSha256)
+    return;
+   pilotSeen.add(requestId);working=true;
+   try{
+    const result=await onVersionedSync({action:x.action,
+     requestId,editorId:x.editorId,payload:x.payload||{},
+     expectedSessionId:x.expectedSessionId,
+     expectedRevision:x.expectedRevision,
+     expectedDraftSha256:x.expectedDraftSha256,
+     expectedApprovedSha256:x.expectedApprovedSha256,
+     expectedApprovalReceiptSha256:x.expectedApprovalReceiptSha256});
+    if(result===undefined||result===null)
+     throw Error('A V3 Sync naplovalasza hianyzik.');
+    emit('versioned-sync-response',{requestId,action:x.action,result});
+    onStatus('v3-'+x.action);
+   }catch(error){
+    emit('versioned-sync-failed',{requestId,action:x.action,
+     message:String(error?.message||error).slice(0,350)});
+    if(!['inspect','v4-ready'].includes(x.action))blocked=true;
+    onStatus('v3-sync-failed');
+   }finally{working=false;}
+   return;
+  }
   if(!selectedSession||approved)return;
   if(event.data.kind==='versioned-approval-request'&&selectedSession.planVersion===3){
    const x=event.data,req=x.requestId;
@@ -154,7 +188,14 @@ export function attachSingleDraftSessionBridge({win=window,
        (x.action==='inspect'&&result.status!=='DRAFT_READY')||
        (x.action==='approve'&&!['READY_TO_SYNC','READY_TO_CLOSE'].includes(result.status)))
       throw Error('V3 Approved Plan ellenorzott valasza nem egyezik.');
-    if(x.action==='approve')approved=true;
+    if(x.action==='approve'){
+     approved=true;
+     if(!/^[a-f0-9]{64}$/.test(result.approvedSha256||'')||
+        !/^[a-f0-9]{64}$/.test(result.approvalReceiptSha256||''))
+      throw Error('Az Approved V3 igazolas hianyos.');
+     v3Approved={approvedSha256:result.approvedSha256,
+      approvalReceiptSha256:result.approvalReceiptSha256};
+    }
     emit('versioned-approval-response',{requestId:req,action:x.action,result});
     onStatus(x.action==='approve'?'approved':'reviewed');
    }catch(error){
@@ -280,5 +321,6 @@ export function attachSingleDraftSessionBridge({win=window,
  const close=()=>{closed=true;win.removeEventListener('message',handler);};
  return Object.freeze({active:true,selected,approvedForSync,close,
   ready:()=>!!origin,session:()=>selectedSession,
-  syncSession:()=>approvedForSyncState});
+  syncSession:()=>approvedForSyncState,
+  v3Approved:()=>v3Approved});
 }
