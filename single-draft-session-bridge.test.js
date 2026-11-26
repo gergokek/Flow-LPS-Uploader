@@ -150,3 +150,31 @@ test('V1 pilot bridge binds source/origin, Approved SHA and request identity; bl
  await a.emit('v1-pilot-request',{...request,action:'inspect',requestId:'66666666-6666-4666-8666-666666666666'});
  assert.equal(received.length,2);a.bridge.close();
 });
+
+test('planning-inspect passes authenticated Approved V1 bridge with no write action',async()=>{
+ const received=[],a=ready(async req=>{received.push(req);
+  return {action:'START_NEXT',planVersion:3,readOnly:true,mondayWrites:0};});
+ a.emit('hello');const sha='b'.repeat(64),source='d'.repeat(64);
+ assert.equal(a.bridge.approvedForSync({status:'APPROVED_V1_VERIFIED',
+  boardId,sessionId,planVersion:1,revision:4,
+  receipt:{name:'approved-v1.json',sha256:sha,eTag:'etag',
+   verification:'content-sha256-and-etag'},sourceDraftSha256:source,
+  approvedPlan:{sourceDraft:{sha256:source}},
+  mondayWrites:0,mondaySyncAllowed:false}),true);
+ const request={action:'planning-inspect',
+  payload:{editorId:'96423073',boardFingerprint:'verified-board'},
+  requestId:'44444444-4444-4444-8444-444444444444',
+  expectedApprovedSha256:sha,expectedSessionId:sessionId,expectedRevision:4};
+ await a.emit('v1-pilot-request',request,'https://forged.example');
+ assert.equal(received.length,0);
+ await a.emit('v1-pilot-request',{...request,expectedSessionId:nonce});
+ assert.equal(received.length,0);
+ await a.emit('v1-pilot-request',request);
+ assert.equal(received.length,1);
+ assert.ok(a.sent.some(x=>x.payload.kind==='v1-pilot-response'&&
+  x.payload.action==='planning-inspect'&&
+  x.payload.result.mondayWrites===0));
+ await a.emit('v1-pilot-request',request);
+ assert.equal(received.length,1);
+ a.bridge.close();
+});
