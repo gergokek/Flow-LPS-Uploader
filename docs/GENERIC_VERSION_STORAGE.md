@@ -4,7 +4,7 @@
 
 ## Cél
 
-A tervezési ciklusok (V1, V2, V3...) és a cikluson belüli DRAFT-revíziók
+Az új projektekben már a V1 is Versions/V0001-be kerül. A tervezési ciklusok (V1, V2, V3...) és a cikluson belüli DRAFT-revíziók
 (V3.1, V3.2...) külön fogalmak. A legfeljebb hatjegyű DRAFT-revízió
 *ugyanahhoz a tervezési ciklushoz* tartozik. A számozás általános,
 nem szükséges minden V4/V5/V6 ciklushoz új fájlnév- vagy mappalogika.
@@ -24,10 +24,10 @@ Ezeknek a helye és a bájttartalma **nem módosul**. A korábbi
 SHA-256/eTag és fájlútvonal-ellenőrzések, jóváhagyási láncok
 változatlanok. A régi fájlok átmásolását, átnevezését vagy törlését
 ez a fejlesztés **nem** végzi el; először minden új V3+ írás az új
-fájlstruktúrát használja majd. A régi V1/V2-t a verziókatalógus
+fájlstruktúrát használja majd. Kizárólag a 5107075373 TEST board V1/V2 ciklusai számítanak örököltnek. Új boardoknál a V1/V2 is V0001/V0002 struktúrába kerül. A régi V1/V2-t a verziókatalógus
 virtuális, csak olvasható örökölt helyekként kezeli.
 
-## Új tervverziók (V3-tól)
+## Verziómappák: új projekteknél V1-től, a meglévő TEST boardnál V3-tól
 
 ```text
 Projects/5107075373/
@@ -101,3 +101,11 @@ nem módosítja.
 6. Csak a valóban ellenőrzött előzményből hozható létre
    új `version-info.json` — ezt a következő ciklus
    teljes implementációjánál kell kikényszeríteni.
+
+## 2026-11-26: utódverzió és V3 DRAFT motor (fejlesztői ág)
+
+- `version-workspace-layout.js` most a `5107075373` TEST boardon kívül már **V0001** mappát választ az első ciklushoz. Az új V1 manifest csak az `approved-v0` ellenőrzött SHA-256 ujjlenyomatát hivatkozhatja; a következő verzióké a lezárt előző ciklus zárónyugtája.
+- `version-successor-contract.js`: csak valóban `V2_SYNC_COMPLETED` bizonyítékláncból számol V3 alapállapotot. Nem kezeli automatikusan V4-nek egy V3 mappa meglétét. Létrehozza és visszaellenőrzi a külön manifest/claim/baseline dokumentumok tartalmát, a szülő SHA-256 alapján kötött DRAFT-revíziókat.
+- `versioned-draft-storage.js`: új, felülírásvédett V3 mentési motor `inspect / begin / append` műveletekkel. Megszakított manifest- és claim-létrehozás után a régi, ellenőrzött session ID-t folytatja, nem generál másodikat. A V3 indításához felhasználói megerősítés, friss teljes Monday-board-egyezés és igazolt V2 zárónyugta kell. A `readBoard` és a Graph-műveletek injektált függőségek, nincs közvetlen hálózati vagy Monday-írás.
+- Szintetikus regressziós tesztek: sérült nyugták, árva DRAFT-ok, megszakított SharePoint-mentés, parent-SHA ütközés, védett mező módosítása, eltérő Monday-board és hiányzó jóváhagyás.
+- Az új V3 motor **még nincs bekötve a Monday–Uploader böngészőkapcsolatba**, ezért nem indít felhasználói V3 DRAFT-ot és nem módosít projektadatot. Az általánosított V3 Approved/szinkron további feladat.
