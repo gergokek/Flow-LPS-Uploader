@@ -1,4 +1,6 @@
 import {createV2ApprovalSyncStore} from './v2-approval-sync-storage.js';
+import {createVersionedDraftStore} from './versioned-draft-storage.js';
+import {createVersionedGraphFiles} from './versioned-graph-files.js';
 import {createV2SessionStore} from './v2-session-storage.js';
 import {createV1FullSyncStore} from './single-v1-full-sync-storage.js';
 import {createV1PilotStore} from './single-v1-pilot-storage.js';
@@ -524,8 +526,24 @@ export function createSingleDraftSessionStore({boardId,driveId,
     requireValid(current?.id===r.id&&current.eTag===r.eTag,'A V2 kapcsolt bizonyitek megvaltozott.');
    }));check();
   }});
+ // Independent V3 namespace: no legacy Graph path is reused, V2 is read only.
+ const v3Graph=createVersionedGraphFiles({boardId,version:3,driveId,getAccessToken,fetcher,
+  assertCurrent:()=>{check();return true;}});
+ const nextVersion=createVersionedDraftStore({version:3,
+  inspectSource:args=>v2Flow.inspect(args),
+  read:v3Graph.read,list:v3Graph.list,create:v3Graph.create,
+  ensureFolders:v3Graph.ensureFolders,
+  readBoard:async args=>args.boardSnapshot,
+  now,randomUUID,check,
+  checkPinned:async(args,model)=>{
+   const report=await v2Flow.inspect(args);
+   requireValid(report?.final?.receipt?.sha256===model.source.completionSha256&&
+    report?.approved?.receipt?.sha256===model.source.approvedSha256,
+    'A V2 kiindulo bizonyitek megvaltozott.');
+   check();
+  }});
  return Object.freeze({start,resume,append,readV0,reviewApproval,approve,
   inspectApprovedSync,prepareApprovedSync,
   inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
-  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow});
+  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow,nextVersion});
 }
