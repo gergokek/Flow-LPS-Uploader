@@ -28,6 +28,15 @@ function safeUrl(value){
  return u.href;
 }
 const requireValid=(c,m)=>{if(!c)throw Error(m);};
+// Keep this as a separately tested, side-effect-free gate: an escaped
+// backslash in a numeric editor-id RegExp previously blocked every valid ID.
+export function requirePlanningInspectionIdentity({createdBy,editorId,boardFingerprint}={}){
+ requireValid(typeof createdBy==='string'&&createdBy.length>0&&
+  typeof editorId==='string'&&/^[0-9]+$/.test(editorId)&&
+  typeof boardFingerprint==='string'&&boardFingerprint.length>0,
+  'Friss Monday-board es bejelentkezett szerkeszto szukseges.');
+ return true;
+}
 const bytes=value=>new TextEncoder().encode(JSON.stringify(value,null,2)+'\n');
 export function createSingleDraftSessionStore({boardId,driveId,
  getAccessToken,getMeAccessToken=getAccessToken,fetcher=fetch,assertCurrent=()=>true,
@@ -608,10 +617,7 @@ export function createSingleDraftSessionStore({boardId,driveId,
  const versionFolders=createVersionFolderCatalog({boardId,driveId,getAccessToken,fetcher,
   assertCurrent:()=>{check();return true;}});
  async function inspectPlanningState({createdBy,editorId,boardFingerprint}={}){
-  check();requireValid(typeof createdBy==='string'&&createdBy.length>0&&
-   typeof editorId==='string'&&/^\\d+$/.test(editorId)&&
-   typeof boardFingerprint==='string'&&boardFingerprint.length>0,
-   'Friss Monday-board es bejelentkezett szerkeszto szukseges.');
+  check();requirePlanningInspectionIdentity({createdBy,editorId,boardFingerprint});
   const args={createdBy,editorId};
   const v0=await readV0();check();
   const v1Report=await full.inspect(args);
