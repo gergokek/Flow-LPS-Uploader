@@ -136,3 +136,13 @@ A tesztek szintetikus munkameneteket használnak, nem írnak a valódi TEST boar
 - A mappák számozása és a létező SharePoint-állományok **nem jelentenek önmagukban bizonyított aktív munkamenetet**. A `project-version-discovery.js` minden talált verzióhoz külön, teljes bizonyítékellenőrzőt vár el (SHA/eTag, forráslánc, végső board-nyugta). Új V3+ mappa előkészítése V3 claim/manifest nélkül ezért addig blokkolhatja a globális állapotválasztást, amíg az üres mappák biztonságos elkülönítése nincs bekötve. Ilyen állapotból nem szabad automatikusan új verziót indítani.
 - A `project-version-resolver.js` és a `project-version-coordinator.js` nem hardcode-olt V2→V3 utat használ: teljes, bizonyított verziókatalógusból tudja kiválasztani az aktív verzió folytatását, egy bizonyított lezárás után a következőt, vagy bizonytalan állapotban az írás tiltását.
 - **Még nem kész:** a tényleges V1/V2/új V3 bizonyítékellenőrzők és a valós Monday-board-ellenőrzés végleges összekötése a katalógussal; az üres, előkészített V3+ mappák ártalmatlan megkülönböztetése; az új „Aktuális terv folytatása” gomb. Ez a csomag fejlesztői forrás és automatikus teszt, nem felhasználói V3-indítás.
+
+## 2026-11-26: élő projektállapot felismerése (csak olvasás)
+
+Az új `project-live-state-adapter.js` a tényleges, újraellenőrzött Approved V0, teljes V1 szinkronnyugta és V1 claim, Approved V2 / teljes V2 szinkronlánc, a mappaellenőrző által feltárt V3, valamint a frissen visszaolvasott Monday-board lenyomata alapján állapítja meg a projekt aktuális teendőjét.
+
+A SharePoint-mappakatalógus külön kezeli a **négy teljesen üres** V3+ almappát (`preparedFolders`) és a bármilyen fájlt tartalmazó verziót. A fájlt tartalmazó verziót további, teljes tartalmi ellenőrzés nélkül nem tekinti aktívnak. Ha magasabb verzió jelenik meg ismert ellenőrző nélkül, vagy hiányzik a lezárási nyugta, a továbblépés tiltott.
+
+A `single-draft-session-storage.js` `inspectPlanningState()` metódusa a fentieket csak olvasással egyesíti. A Monday–Uploader bejelentkezett, Approved V1-hez kötött üzenetkapcsolatán a `planning-inspect` művelet friss Monday-board-lenyomatot ad át, az Uploader pedig ellenőrzött tervállapotot ad vissza. A Monday TEST felületén az **„Aktuális terv ellenőrzése / következő művelet felismerése (0 írás)”** gomb csak előnézetet jelenít meg.
+
+**Nincs elindítva V3**, nincs V3 manifest/claim/DRAFT írás, és a felismerő műveletnek nincs külön jóváhagyási vagy Monday-írási képessége. A későbbi generikus „indítás/folytatás” végrehajtását az összes állapot és a megfelelő verziós végrehajtó további ellenőrzésével kell bekötni. A V1/V2 történeti fájlok és jóváhagyások helyben maradnak.
