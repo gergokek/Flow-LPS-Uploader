@@ -4,6 +4,7 @@ import {inspectFullSyncEvidence} from './v1-full-sync-contract.js';
 import {createVersionFolderCatalog} from './project-version-folder-catalog.js';
 import {projectVerifiedCycleState} from './project-live-state-adapter.js';
 import {createPlanningActionGate} from './project-planning-action-gate.js';
+import {createPlanningInspectionTrace} from './planning-inspection-diagnostics.js';
 import {createVersionedDraftStore} from './versioned-draft-storage.js';
 import {createVersionedGraphFiles} from './versioned-graph-files.js';
 import {createVersionedApprovalSource} from './versioned-approval-source.js';
@@ -616,24 +617,30 @@ export function createSingleDraftSessionStore({boardId,driveId,
  // Read-only CURRENT PROJECT discovery. No version is allocated here.
  const versionFolders=createVersionFolderCatalog({boardId,driveId,getAccessToken,fetcher,
   assertCurrent:()=>{check();return true;}});
- async function inspectPlanningState({createdBy,editorId,boardFingerprint}={}){
+ async function inspectPlanningState({createdBy,editorId,boardFingerprint,
+  onPhase=()=>{}}={}){
   check();requirePlanningInspectionIdentity({createdBy,editorId,boardFingerprint});
-  const args={createdBy,editorId};
-  const v0=await readV0();check();
-  const v1Report=await full.inspect(args);
-  const v1State=await inspectFullSyncEvidence(v1Report.evidence,editorId,now().getTime());check();
-  const v2Report=await v2Flow.inspect(args);
-  const v2State=await inspectV2Cycle(v2Report,editorId,createdBy,now().getTime());check();
-  const oldV1Claim=await readFile(draftPath('active-session.json'));check();
+  const args={createdBy,editorId},
+   trace=createPlanningInspectionTrace({onPhase});
+  const v0=await trace.read('V0_APPROVED',()=>readV0());check();
+  const v1Report=await trace.read('V1_SYNC_JOURNAL',()=>full.inspect(args));check();
+  const v1State=await trace.read('V1_SYNC_PROOF',
+   ()=>inspectFullSyncEvidence(v1Report.evidence,editorId,now().getTime()));check();
+  const v2Report=await trace.read('V2_SYNC_JOURNAL',()=>v2Flow.inspect(args));check();
+  const v2State=await trace.read('V2_SYNC_PROOF',
+   ()=>inspectV2Cycle(v2Report,editorId,createdBy,now().getTime()));check();
+  const oldV1Claim=await trace.read('V1_SESSION_CLAIM',
+   ()=>readFile(draftPath('active-session.json')));check();
   requireValid(!!oldV1Claim,'Hianyzo eredeti V1 munkamenetnyugta.');
-  // Legacy versions are passed ONLY after their complete independent validation.
-  const catalog=await versionFolders.inspect({legacyVersions:[1,2]});check();
+  // The version inventory must be complete, not merely a folder name.
+  const catalog=await trace.read('VERSION_FOLDER_CATALOG',
+   ()=>versionFolders.inspect({legacyVersions:[1,2]}));check();
   const v3Report=catalog.versions.includes(3)?
-   await nextVersion.inspect(args):null;
+   await trace.read('V3_SESSION_CHAIN',()=>nextVersion.inspect(args)):null;
   check();
-  const result=projectVerifiedCycleState({boardId,approvedV0:v0,
-   oldV1Claim,v1Report,v1State,v2Report,v2State,v3Report,
-   folderCatalog:catalog,boardFingerprint});
+  const result=await trace.read('PROJECT_LINEAGE',()=>projectVerifiedCycleState({
+   boardId,approvedV0:v0,oldV1Claim,v1Report,v1State,v2Report,v2State,v3Report,
+   folderCatalog:catalog,boardFingerprint}));
   return structuredClone({...result,checkedAt:now().toISOString(),
    readOnly:true,mondayWrites:0});
  }
