@@ -5,6 +5,7 @@ import {beginV1FullSyncWithConsent} from './full-sync-consent-ui.js';
 import {createSessionDraftAutosave} from './draft-session-autosave.js';
 import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
 import {verifiedVersionedSelection} from './versioned-session-selection.js';
+import {requestPlanningStartConsent} from './planning-start-consent.js';
 import {createImmutableDraftQueue} from './single-draft-write-queue.js';
 import {attachSingleDraftSessionBridge} from './single-draft-session-bridge.js';
 import {attachDraftHandoff} from './draft-handoff-receiver.js';
@@ -349,6 +350,40 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
    '; kovetkezo muvelet: '+state.action+'; verzio: '+(state.planVersion??'-')+
    '; letezo verzio: '+state.verifiedVersionCount+'; Monday iras: 0.';
   return state;
+ }
+ if(request.action==='planning-begin'){
+  const store=singleSyncStore,linked=singleSyncSelected,opener=window.opener;
+  const current=()=>store===singleSyncStore&&linked===singleSyncSelected&&
+   !singleSession&&!singleSessionQueue&&
+   projectBoard.value.trim()==='5107075373'&&singleBridge.active&&
+   singleBridge.ready()&&msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId&&
+   opener&&opener===window.opener&&!opener.closed;
+  if(!current()||payload.mondayConfirmed!==true)
+   throw Error('A Monday tervinditasi jovahagyasa vagy kapcsolata hianyzik.');
+  const args={...payload,createdBy,editorId:payload.editorId};
+  const state=await store.planningActions.inspect(args);
+  if(!current()||state.action!=='START_NEXT'||state.boardMatches!==true||
+    state.planVersion!==3||
+    state.predecessorCompletionSha256!==payload.expectedPredecessorSha256||
+    state.verifiedVersionCount!==2)
+   throw Error('Nem teljes vagy megvaltozott a V2 utani projektallapot.');
+  approvedV1SyncOutput.textContent='Uj terv inditasa kulon Uploader-jovahagyasra var. Monday-iras: 0.';
+  const accepted=await requestPlanningStartConsent({
+   host:approvedV1SyncOutput.parentElement,state,isCurrent:current});
+  if(!accepted||!current())throw Error('Az Uploader tervinditast megszakitottak.');
+  const run=await store.planningActions.execute({...args,
+   mondayConfirmed:true,uploaderConfirmed:true});
+  if(!current()||run.action!=='START_NEXT'||run.version!==state.planVersion)
+   throw Error('A tervinditas eredmenye nem egyezik az ellenorzott verzioval.');
+  const selected=await verifiedVersionedSelection(run.report);
+  if(!current()||selected.planVersion!==state.planVersion)
+   throw Error('A friss DRAFT-atadas kapcsolat megvaltozott.');
+  installV2EditorQueue({append:work=>store.nextVersion.append({...work,
+   createdBy,editorId:payload.editorId})},selected);
+  approvedV1SyncOutput.textContent='Aktiv '+selected.versionLabel+
+   ' DRAFT letrehozva, ellenorizve, a Monday szerkesztonek atadhato. Monday-iras: 0.';
+  return selected;
  }
  if(request.action==='planning-open'){
   const store=singleSyncStore,linked=singleSyncSelected,opener=window.opener,
