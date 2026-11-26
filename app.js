@@ -333,6 +333,22 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
     request.expectedRevision!==singleSyncSelected.revision)
   throw Error('V1 pilot: nincs ellenorzott Approved V1 kapcsolat.');
  const payload=request.payload||{},createdBy=account.homeAccountId;
+ if(request.action==='planning-inspect'){
+  const selected=singleSyncSelected,store=singleSyncStore;
+  if(projectBoard.value.trim()!=='5107075373'||!singleBridge.active||
+     !singleBridge.ready()||singleSyncSelected!==selected)
+   throw Error('A tervallapot ellenorzes kapcsolata megszakadt.');
+  approvedV1SyncOutput.textContent='Projektverziok es teljes SharePoint-bizonyitekok ellenorzese. Csak olvasas.';
+  const state=await store.inspectPlanningState({createdBy,
+   editorId:payload.editorId,boardFingerprint:payload.boardFingerprint});
+  if(singleSyncSelected!==selected||singleSyncStore!==store||
+     msal.getAllAccounts()[0]?.homeAccountId!==createdBy)
+   throw Error('A Microsoft-fiok vagy SharePoint kapcsolat megvaltozott.');
+  approvedV1SyncOutput.textContent='Projektallapot: '+state.status+
+   '; kovetkezo muvelet: '+state.action+'; verzio: '+(state.planVersion??'-')+
+   '; letezo verzio: '+state.verifiedVersionCount+'; Monday iras: 0.';
+  return state;
+ }
  if(request.action.startsWith('v2-flow-')){
   const flow=singleSyncStore.v2Flow,action=request.action.slice(8),args={...payload,createdBy,requestId:request.requestId};
   const selected=singleSyncSelected,store=singleSyncStore,opener=window.opener;
