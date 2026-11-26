@@ -82,7 +82,15 @@ export function createVersionedApprovalStore({
  async function inspect(args={}){
   enter();try{
    const s=await current(args);
-   return clone({...s,model:undefined,readOnly:true,mondayWrites:0});
+   return clone({...s,model:undefined,readOnly:true,mondayWrites:0,
+    planVersion:s.model.version,boardId:s.model.boardId,
+    sessionId:s.model.sessionId,revision:s.model.revision,
+    sourceDraftSha256:s.model.sourceDraftSha256,
+    generationSha256:s.model.generationSha256,
+    predecessorCompletionSha256:s.model.source.completionSha256,
+    sourceBoardSha256:s.model.sourceBoardSha256,
+    changedTaskCount:s.model.changedTaskCount,
+    fieldChangeCount:s.model.fieldCount,taskCount:s.model.taskCount});
   }finally{finish();}
  }
  async function requireBoard(args,m){
@@ -153,7 +161,15 @@ export function createVersionedApprovalStore({
    state=await checkModel();
    ok(['READY_TO_SYNC','READY_TO_CLOSE'].includes(state.state.status),
     'Az Approved Plan vagy nyugta nincs teljesen igazolva.');
-   return clone({...state,model:undefined,readOnly:true,mondayWrites:0});
+   return clone({...state,model:undefined,readOnly:true,mondayWrites:0,
+    planVersion:state.model.version,boardId:state.model.boardId,
+    sessionId:state.model.sessionId,revision:state.model.revision,
+    sourceDraftSha256:state.model.sourceDraftSha256,
+    generationSha256:state.model.generationSha256,
+    predecessorCompletionSha256:state.model.source.completionSha256,
+    sourceBoardSha256:state.model.sourceBoardSha256,
+    changedTaskCount:state.model.changedTaskCount,
+    fieldChangeCount:state.model.fieldCount,taskCount:state.model.taskCount});
   }catch(e){blocked=true;throw e;}
   finally{finish();}
  }
