@@ -67,3 +67,15 @@ Open next: generalized V3+ Approved and Sync engines, partial/uncertain version-
 - TEST feature branches only. No real board writes, V3 session allocation, Approved/Sync user writes or historical V1/V2 migration. Manual acceptance remains paused.
 - New regression tests: Monday tests/versioned-approval-ui-preview.test.mjs; Uploader tests/versioned-approval-status-ui.test.js. Verify newest GitHub CI runs before declaring release successful.
 - Next: origin/nonce/session/consent-bound V3 review RPC, verified freeze/approval integration, journaled sync; then a single acceptance test and TEST deployment.
+
+## PATCH BATCH #3 - V3 dual-confirmed approval TEST deployment (2026-11-26)
+
+DONE:
+- Monday versioned V3 approval panel compares actual saved DRAFT with independently verified V3 SharePoint source, V2 fully completed predecessor, immutable V3 revision receipts, and fresh full Monday TEST board. It renders the confirmation only after matching receipt/session/revision/generation/board details.
+- Uploader has a dedicated nonce/origin-bound V3 approval inspect/approve RPC (not the V1/V2 sync lane), a second visible consent, read-only V3 source inspector, separate approved storage, immutable freeze / Approved Plan / receipt creation, Graph conflict-fail with independent SHA/eTag readback, and fail-closed uncertainty handling.
+- V3 Monday WRITE MUTATIONS ARE DISABLED. Only explicit dual-consent SharePoint Approved V3 artifact creation is enabled. V4+ predecessor support remains disabled; existing V1/V2 legacy storage untouched.
+- Uploader TEST Pages deployment run 45835504486: SUCCESS, including both source test/build, production root byte-for-byte unchanged and isolated /test/ publication.
+- Monday TEST app draft / Board View deployment run 45835512829: SUCCESS, including npm test, locked TEST bundle verification, TEST-only code push, Board View association and release verification.
+- Unit and regression CI prior to deployments: Uploader 45835334516 SUCCESS, Monday 45835076430 + 45835064297 + 45835076446 SUCCESS. New V3 origin/nonce/revision/receipt and separate-consent tests included.
+- No real user V3 approval / SharePoint project-data write, no real Monday mutation and no live V3 complete-cycle acceptance were performed by development.
+- Manual test remains PAUSED by user request. Next PATCH BATCH #3 component: independently verified per-item V3+ Sync write-ahead/result journal, full board readback, terminal closure, successor V4+ proof. Then one integrated user acceptance checklist.
