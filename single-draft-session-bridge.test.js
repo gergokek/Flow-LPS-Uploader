@@ -178,3 +178,25 @@ test('planning-inspect passes authenticated Approved V1 bridge with no write act
  assert.equal(received.length,1);
  a.bridge.close();
 });
+
+test('V3 revision handoff retains planVersion and cannot invoke V1 approval handler',async()=>{
+ const a=ready();a.emit('hello');
+ const v3=structuredClone(a.selected);
+ v3.planVersion=3;v3.versionLabel='V3';
+ v3.draft.session.planVersion=3;
+ assert.equal(a.bridge.selected(v3),true);
+ await a.emit('approve-plan',{requestId:'44444444-4444-4444-8444-444444444444',
+  expectedSessionId:sessionId,expectedRevision:0,expectedSha256:'a'.repeat(64),
+  boardFingerprintSha256:'b'.repeat(64),boardVerifiedAt:new Date().toISOString(),
+  editorId:'96423073'});
+ assert.equal(a.approvalCalls(),0);
+ await a.emit('save-revision',{requestId:'55555555-5555-4555-8555-555555555555',
+  draft:{boardId,version:1,session:{sessionId,planVersion:1}}});
+ assert.equal(a.calls(),0);
+ await a.emit('save-revision',{requestId:'66666666-6666-4666-8666-666666666666',
+  draft:{boardId,version:1,session:{sessionId,planVersion:3}}});
+ assert.equal(a.calls(),1);
+ assert.ok(a.sent.some(x=>x.payload.kind==='revision-saved'&&
+  x.payload.revision===1));
+ a.bridge.close();
+});
