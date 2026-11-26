@@ -104,7 +104,7 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
    args.expectedPredecessorSha256===m.source.completionSha256&&
    args.boardFingerprint===m.fingerprint&&Number.isFinite(at)&&at<=t+5000&&
    t-at<=120000,'Nincs friss, egyezo board- es V2 nyugtaigazolas.');
-  const board=await readBoard();guard();
+  const board=await readBoard(args);guard();
   ok(pilotFingerprint(board)===m.fingerprint,
    'Az aktualis TEST board elter a lezart V2 vegallapottol.');
  }
