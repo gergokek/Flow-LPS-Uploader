@@ -117,3 +117,15 @@ User symptom: START_NEXT V3.0 visible in Monday TEST; after both separate approv
 - User recovery: close old Uploader, open fresh /test/ connection; run *read-only* V3 folder inventory and Monday planning-inspect FIRST. If Session/Drafts files exist, do NOT start again: inspect RESUME_DRAFT or incomplete cycle; if empty and START_NEXT, click once, approve in both windows, observe stage message. If FAIL, capture exact Uploader status and Monday error, do not repeat.
 
 V3 post-consent telemetry release verified: Uploader TEST Pages GitHub Actions run 45852342921 completed SUCCESS; new staged UI + fail-closed start orchestration live at /test/. Unit/build run 45852226577 SUCCESS. The screenshot's exact underlying SharePoint failure cannot be proved without the newly visible phase/error, so do not claim a user session was successfully created. Read-only inspect V3 inventory and project status before any repeat start request.
+
+## PATCH BATCH #3 user acceptance - Failed to fetch in read-only planning inspection (2026-11-26)
+
+User screenshot: Monday TEST "Aktualis terv ellenorzese" returns generic "Failed to fetch" while prior V3 start after dual consent was not visibly completed. This is a transport/Graph-or-SDK read failure, not evidence that no V3 SharePoint files exist. Avoid re-pressing START_NEXT until V3 has been read-only inspected.
+
+Safety changes:
+- Uploader `planning-inspection-diagnostics.js` maps exact read stages: V0_APPROVED, V1_SYNC_JOURNAL/PROOF, V2_SYNC_JOURNAL/PROOF, V1_SESSION_CLAIM, VERSION_FOLDER_CATALOG, V3_SESSION_CHAIN, PROJECT_LINEAGE. Network/CORS failures get a scrubbed NETWORK_FETCH_FAILED label without Graph URL, download links, tokens, document contents or automatic retry. `single-draft-session-storage.js` reports each step; `app.js` displays it locally and propagates the read-only error to Monday.
+- Monday `planning-read-steps.js` distinguishes MONDAY_EDITOR, MONDAY_FULL_BOARD and UPLOADER_SHAREPOINT to isolate the network failure without any write. `src/main.js` uses those labels. `src/ui/view.js` no longer misleadingly asserts no V3 exists when a read-only check fails.
+- Uploader `project-live-state-adapter.js` returns BLOCKED/MANUAL_REVIEW (not START_NEXT) for read-back-verified START_INCOMPLETE or APPROVAL_FROZEN V3 artifacts. Never allocate a duplicate session or treat a folder as proof.
+- Test coverage in `tests/planning-inspection-diagnostics.test.js`, `tests/planning-read-steps.test.mjs`, and `tests/project-live-state-adapter.test.js`.
+- No live Monday/SharePoint project writes, no deletions, no token access. The exact cause of failed network access is still UNKNOWN pending the newly labeled diagnostic; avoid claiming it is CORS, auth or Graph without user evidence.
+- Next user action after TEST deployment: close old Uploader, fresh Monday TEST/Uploader connection, run only Uploader V3 inventory (0 writes) then Monday planning-inspect (0 writes); copy two status messages. No V3 start until reviewed.
