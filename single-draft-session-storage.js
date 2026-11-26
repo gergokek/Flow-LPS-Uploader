@@ -8,6 +8,7 @@ import {createPlanningInspectionTrace} from './planning-inspection-diagnostics.j
 import {createVerifiedReadCache} from './verified-read-cache.js';
 import {createVersionedDraftStore} from './versioned-draft-storage.js';
 import {createVersionedGraphFiles} from './versioned-graph-files.js';
+import {versionLayout,lifecycleFileName} from './version-workspace-layout.js';
 import {createVersionedApprovalSource} from './versioned-approval-source.js';
 import {createVersionedApprovalStore} from './versioned-approval-storage.js';
 import {createVersionedSyncStore} from './versioned-sync-storage.js';
@@ -642,12 +643,31 @@ export function createSingleDraftSessionStore({boardId,driveId,
   // The version inventory must be complete, not merely a folder name.
   const catalog=await trace.read('VERSION_FOLDER_CATALOG',
    ()=>versionFolders.inspect({legacyVersions:[1,2]}));check();
-  const v3Report=catalog.versions.includes(3)?
-   await trace.read('V3_SESSION_CHAIN',()=>nextVersion.inspect(args)):null;
+  let v3Report=null,v3SyncState=null;
+  if(catalog.versions.includes(3)){
+   await trace.read('V3_SESSION_CHAIN',async()=>{
+    const layout=versionLayout(boardId,3);
+    const [sessions,approved,sync]=await Promise.all([
+     v3Graph.list(layout.session),v3Graph.list(layout.approved),v3Graph.list(layout.sync)]);
+    check();
+    const approvalReceipt=sessions.some(f=>f.name===lifecycleFileName(3,'approval-receipt'));
+    const approvedFile=approved.some(f=>f.name===lifecycleFileName(3,'approved'));
+    const frozen=sessions.some(f=>f.name===lifecycleFileName(3,'freeze'));
+    if(approvalReceipt&&approvedFile&&frozen){
+     // Full content and journal verification, not a filename-based decision.
+     v3SyncState=(await v3Sync.inspect(args)).state;
+    }else if(frozen||approvalReceipt||approved.length||sync.length){
+     // Incomplete or unknown approval evidence can only BLOCK. Never use
+     // filename presence to authorize reopen, DRAFT creation or sync.
+     v3Report={status:'APPROVAL_FROZEN',planVersion:3};
+    }else v3Report=await nextVersion.inspect(args);
+   });
+  }
   check();
-  const result=await trace.read('PROJECT_LINEAGE',()=>projectVerifiedCycleState({
-   boardId,approvedV0:v0,oldV1Claim,v1Report,v1State,v2Report,v2State,v3Report,
-   folderCatalog:catalog,boardFingerprint}));
+  const result=await trace.read('PROJECT_LINEAGE',async()=>projectVerifiedCycleState({
+   boardId,approvedV0:v0,oldV1Claim,v1Report,v1State,v2Report,v2State,v3Report,v3SyncState,
+   folderCatalog:catalog,boardFingerprint,
+   boardFingerprintSha256:await sha256(new TextEncoder().encode(boardFingerprint))}));
   return structuredClone({...result,checkedAt:now().toISOString(),
    readOnly:true,mondayWrites:0});
  }
