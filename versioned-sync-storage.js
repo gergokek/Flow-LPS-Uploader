@@ -218,7 +218,8 @@ export function createVersionedSyncStore({
    const saved=await createChecked(s.model,s.model.names.completed,doc);
    const after=await fresh(args);
    ok(after.state.status==='V3_SYNC_COMPLETED','V3 teljes lezaro ellenorzes sikertelen.');
-   blocked=true;
+   // Terminal completion stays read-only inspectable by this instance.
+   // Further writes are impossible: final exists, finish is spent and no next step.
    return saved;
   });
  }
