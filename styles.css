@@ -23,3 +23,16 @@ details.legacy-tests>section{margin-top:1rem}
 #planningStartConsent{border:2px solid #195b94;background:#eaf3ff;box-shadow:0 7px 24px #18304422}
 #planningStartConsent #approvePlanningStart{background:#195b94;color:#fff;border-color:#195b94}
 #planningStartConsent #cancelPlanningStart{background:#fff}
+
+/* Current TEST acceptance: historical controls stay in the DOM only for
+   legacy module wiring; they are not exposed in the deployed user UI. */
+.current-planning-test details.legacy-tests,
+.current-planning-test #versionStoragePreview,
+.current-planning-test #setupProject,
+.current-planning-test #setupProject~output,
+.current-planning-test #singleDraftSession>button,
+.current-planning-test #singleDraftSession>p,
+.current-planning-test #projectBoardId~details{display:none!important}
+.current-planning-test #approvedV1Sync{border:2px solid #9eb9d5;background:#fbfdff}
+.current-planning-test #inspectApprovedV1:not(:disabled){background:#195b94;color:white;border-color:#195b94}
+.current-planning-test #approvedV1Sync [hidden]{display:none!important}
