@@ -36,7 +36,7 @@ const ready=(onPilotRequest=async()=>{throw Error('No pilot');})=>{
   }});
  const emit=(kind,extras={},origin='https://monday-test.example')=>
   handler({source:opener,origin,data:{protocol,nonce,boardId,kind,...extras}});
- const selected={status:'ACTIVE',boardId,sessionId,revision:0,
+ const selected={status:'ACTIVE',boardId,sessionId,planVersion:1,revision:0,
   versionLabel:'V1',draft:{boardId,version:0,
    session:{sessionId,planVersion:1,revision:0}},
   receipt:{sha256:'a'.repeat(64),eTag:'origin',
@@ -60,10 +60,10 @@ test('refuses to send DRAFT before origin-bound hello',()=>{
 test('only the next revision from selected session is persisted',async()=>{
  const a=ready();a.emit('hello');assert.equal(a.bridge.selected(a.selected),true);
  await a.emit('save-revision',{requestId:'44444444-4444-4444-8444-444444444444',
-  draft:{boardId,version:2,session:{sessionId}}});
+  draft:{boardId,version:2,session:{sessionId,planVersion:1}}});
  assert.equal(a.calls(),0);
  await a.emit('save-revision',{requestId:'44444444-4444-4444-8444-444444444444',
-  draft:{boardId,version:1,session:{sessionId}}});
+  draft:{boardId,version:1,session:{sessionId,planVersion:1}}});
  assert.equal(a.calls(),1);
  assert.ok(a.sent.some(x=>x.payload.kind==='revision-saved'&&
   x.payload.revision===1));
