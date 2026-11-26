@@ -47,3 +47,22 @@ test('version index requires a verified predecessor receipt, not just an existin
  assert.throws(()=>makeVersionInfo({...opts,source:{planVersion:2,completionSha256:'invalid'}}));
  assert.throws(()=>makeVersionInfo({...opts,version:2}));
 });
+
+test('new projects start versioned already at V1 and derive V0 SHA as source',()=>{
+ const board='5105949528';
+ const first=versionLayout(board,1),second=versionLayout(board,2);
+ assert.equal(first.legacy,false);
+ assert.equal(first.versionRoot,'Projects/'+board+'/Versions/V0001');
+ assert.equal(first.drafts,'Projects/'+board+'/Versions/V0001/Drafts');
+ assert.equal(second.versionRoot,'Projects/'+board+'/Versions/V0002');
+ const info=makeVersionInfo({boardId:board,version:1,
+  sessionId:'11111111-1111-4111-8111-111111111111',
+  source:{planVersion:0,approvedSha256:'f'.repeat(64)},createdAt:'2026-11-26T10:00:00Z'});
+ assert.equal(info.sourceReferenceKind,'APPROVED_V0');
+ assert.equal(info.sourceApprovedV0Sha256,'f'.repeat(64));
+ assert.equal(info.sourceCompletionSha256,null);
+ assert.throws(()=>makeVersionInfo({boardId:board,version:1,
+  sessionId:'11111111-1111-4111-8111-111111111111',
+  source:{planVersion:0,completionSha256:'f'.repeat(64)},createdAt:'2026-11-26T10:00:00Z'}));
+ assert.deepEqual(versionIndex(board,2).map(x=>x.legacy),[false,false]);
+});
