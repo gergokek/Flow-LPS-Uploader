@@ -5,9 +5,11 @@ export const SINGLE_DRAFT_PROTOCOL='mflow-single-draft-session-v1';
 const uuid=s=>typeof s==='string'&&/^[a-f0-9-]{36}$/i.test(s);
 export function attachSingleDraftSessionBridge({win=window,
  onSaveRevision=async()=>{},onApprovePlan=async()=>{},
- onPrepareSync=async()=>{},onPilotRequest=async()=>{throw Error('V1 pilot is not connected.');},onStatus=()=>{}}={}){
+ onPrepareSync=async()=>{},onPilotRequest=async()=>{throw Error('V1 pilot is not connected.');},
+ onVersionedApproval=async()=>{throw Error('V3 Approved Plan nincs bekotve.');},onStatus=()=>{}}={}){
  if(typeof onSaveRevision!=='function'||typeof onApprovePlan!=='function'||
     typeof onPrepareSync!=='function'||typeof onPilotRequest!=='function'||
+    typeof onVersionedApproval!=='function'||
     typeof onStatus!=='function'||
     !win||typeof win.addEventListener!=='function')
   throw Error('Érvénytelen TEST munkamenet-átadás.');
@@ -122,6 +124,47 @@ export function attachSingleDraftSessionBridge({win=window,
    return;
   }
   if(!selectedSession||approved)return;
+  if(event.data.kind==='versioned-approval-request'&&selectedSession.planVersion===3){
+   const x=event.data,req=x.requestId;
+   if(!uuid(req)||pilotSeen.has(req)||!['inspect','approve'].includes(x.action)||
+      x.expectedSessionId!==selectedSession.sessionId||
+      x.expectedRevision!==selectedSession.revision||
+      x.expectedDraftSha256!==selectedSession.sha256)return;
+   pilotSeen.add(req);working=true;
+   try{
+    const result=await onVersionedApproval({
+     action:x.action,requestId:req,editorId:x.editorId,
+     expectedSessionId:x.expectedSessionId,
+     expectedRevision:x.expectedRevision,
+     expectedDraftSha256:x.expectedDraftSha256,
+     expectedGenerationSha256:x.expectedGenerationSha256,
+     expectedPredecessorSha256:x.expectedPredecessorSha256,
+     boardFingerprintSha256:x.boardFingerprintSha256,
+     boardVerifiedAt:x.boardVerifiedAt,
+     boardSnapshot:x.boardSnapshot,
+     mondayConfirmed:x.mondayConfirmed,
+     executionId:x.executionId
+    });
+    if(result?.boardId!==boardId||result.planVersion!==3||
+       result.sessionId!==selectedSession.sessionId||
+       result.revision!==selectedSession.revision||
+       result.sourceDraftSha256!==selectedSession.sha256||
+       result.mondayWrites!==0||
+       result.mondaySyncAllowed!==false||
+       (x.action==='inspect'&&result.status!=='DRAFT_READY')||
+       (x.action==='approve'&&!['READY_TO_SYNC','READY_TO_CLOSE'].includes(result.status)))
+      throw Error('V3 Approved Plan ellenorzott valasza nem egyezik.');
+    if(x.action==='approve')approved=true;
+    emit('versioned-approval-response',{requestId:req,action:x.action,result});
+    onStatus(x.action==='approve'?'approved':'reviewed');
+   }catch(error){
+    if(x.action==='approve')blocked=true;
+    emit('versioned-approval-failed',{requestId:req,action:x.action,
+     message:String(error?.message||error).slice(0,350)});
+    onStatus(x.action==='approve'?'blocked':'review-failed');
+   }finally{working=false;}
+   return;
+  }
   if(event.data.kind==='save-revision'){
    const draft=event.data.draft,requestId=event.data.requestId;
    if(!uuid(requestId)||!draft||typeof draft!=='object'||
