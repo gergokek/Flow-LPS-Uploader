@@ -87,3 +87,13 @@ test('the selected next plan carries the independently verified predecessor sync
  assert.equal(x.action,'START_NEXT');
  assert.equal(x.predecessorCompletionSha256,v2End);
 });
+
+test('verified Approved V3 reopens its own sync state, never starts a new version',()=>{
+ const v3SyncState={model:{boardId:options.boardId,version:3,sessionId:session3,source:{completionSha256:v2End},revision:1,sourceDraftSha256:H('a')},approvedSha256:H('b'),approvalReceiptSha256:H('c'),expectedBoardSha256:H('d'),remainingTaskCount:1,status:'READY_TO_SYNC'};
+ const input={...options,folderCatalog:{complete:true,versions:[1,2,3]},v3SyncState,boardFingerprintSha256:H('d')};
+ const ready=projectVerifiedCycleState(input);
+ assert.equal(ready.action,'CONTINUE_FINALIZATION');assert.equal(ready.approvedVerified,true);assert.equal(ready.planVersion,3);
+ assert.equal(projectVerifiedCycleState({...input,boardFingerprintSha256:H('e')}).action,'MANUAL_REVIEW');
+ assert.equal(projectVerifiedCycleState({...input,v3SyncState:{...v3SyncState,status:'V3_SYNC_COMPLETED',remainingTaskCount:0}}).action,'CONTINUE_FINALIZATION');
+ assert.throws(()=>projectVerifiedCycleState({...input,v3SyncState:{...v3SyncState,model:{...v3SyncState.model,source:{completionSha256:H('f')}}}}));
+});
