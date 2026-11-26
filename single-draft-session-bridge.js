@@ -115,7 +115,7 @@ export function attachSingleDraftSessionBridge({win=window,
    if(!uuid(requestId)||!draft||typeof draft!=='object'||
       draft.boardId!==boardId||
       draft.session?.sessionId!==selectedSession.sessionId||
-      (selectedSession.planVersion===2&&draft.session?.planVersion!==2)||
+      draft.session?.planVersion!==selectedSession.planVersion||
       draft.version!==selectedSession.revision+1)return;
    working=true;
    try{
@@ -136,7 +136,7 @@ export function attachSingleDraftSessionBridge({win=window,
     emit('revision-failed',{requestId,message:String(error?.message||error).slice(0,300)});
     onStatus('blocked');
    }finally{working=false;}
-  }else if(event.data.kind==='approve-plan'&&selectedSession.planVersion!==2){
+  }else if(event.data.kind==='approve-plan'&&selectedSession.planVersion===1){
    const x=event.data;
    if(!uuid(x.requestId)||x.expectedSessionId!==selectedSession.sessionId||
       x.expectedRevision!==selectedSession.revision||
@@ -184,6 +184,8 @@ export function attachSingleDraftSessionBridge({win=window,
      verified.boardId!==boardId||!uuid(verified.sessionId)||
      !Number.isSafeInteger(verified.revision)||verified.revision<0||
      verified.draft?.session?.sessionId!==verified.sessionId||
+     verified.draft?.session?.planVersion!==verified.planVersion||
+     ![1,3].includes(verified.planVersion)||
      verified.draft.version!==verified.revision||
      verified.receipt?.verification!=='content-sha256-and-etag'||
      !/^[a-f0-9]{64}$/.test(verified.receipt.sha256||''))
@@ -193,8 +195,8 @@ export function attachSingleDraftSessionBridge({win=window,
    draft:structuredClone(verified.draft),
    receipt:{sha256:verified.receipt.sha256,eTag:verified.receipt.eTag,
     name:verified.receipt.name,verification:verified.receipt.verification}});
-  if(sent)selectedSession={sessionId:verified.sessionId,revision:verified.revision,
-   sha256:verified.receipt.sha256};
+  if(sent)selectedSession={sessionId:verified.sessionId,planVersion:verified.planVersion,
+   revision:verified.revision,sha256:verified.receipt.sha256};
   return sent;
  }
  function approvedForSync(verified){
