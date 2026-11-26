@@ -55,7 +55,8 @@ function fixture(){
 test('V3 versioned Graph create returns content-verified receipt and list/read',async()=>{
  const f=fixture(),path=f.folder+'/draft-v3.json';
  assert.equal(await f.api.read(path),null);
- const d={schemaVersion:1,format:'flow-lps-draft',version:0};
+ const d={schemaVersion:1,format:'flow-lps-draft',boardId:'5107075373',version:0,
+  session:{planVersion:3}};
  const p=await f.api.create(path,d);
  assert.equal(p.path,path);assert.equal(p.name,'draft-v3.json');
  assert.equal((await f.api.read(path)).value.format,'flow-lps-draft');
