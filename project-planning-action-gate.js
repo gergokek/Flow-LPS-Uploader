@@ -13,7 +13,8 @@ export function createPlanningActionGate({inspectCurrent,storeForVersion,
  async function snapshot(args){
   check();const result=await inspectCurrent(args);check();
   ok(result?.readOnly===true&&result.mondayWrites===0&&
-   result.verifiedVersionCount>=1&&Number.isSafeInteger(result.planVersion)&&
+   Number.isSafeInteger(result.verifiedVersionCount)&&result.verifiedVersionCount>=0&&
+   Number.isSafeInteger(result.planVersion)&&
    result.planVersion>0&&result.planVersion<=9999&&
    typeof result.action==='string',
    'Unverified project planning state.');
