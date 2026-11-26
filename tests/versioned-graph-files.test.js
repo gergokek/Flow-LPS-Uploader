@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createVersionedGraphFiles} from '../versioned-graph-files.js';
 const drive='b!example';
-function fixture(){
+function fixture(kind='Drafts'){
  const root='https://graph.microsoft.com/v1.0/drives/'+encodeURIComponent(drive);
- const folder='Projects/5107075373/Versions/V0003/Drafts';
+ const folder='Projects/5107075373/Versions/V0003/'+kind;
  const files=new Map(),requests=[],url='https://files.sharepoint.com/v3-draft';
  const response=(status,value)=>({status,ok:status>=200&&status<300,
   json:async()=>value, arrayBuffer:async()=>new TextEncoder().encode(value).buffer});
@@ -39,7 +39,7 @@ function fixture(){
   }
   if(rest.startsWith('/root:/')){
    const path=decodeURIComponent(rest.slice('/root:/'.length).split('?')[0]);
-   if(path===folder)return response(200,{id:'folder-1',name:'Drafts',folder:{},
+   if(path===folder)return response(200,{id:'folder-1',name:kind,folder:{},
     parentReference:{driveId:drive}});
    const file=files.get(path);
    if(!file)return response(404,{});
@@ -60,6 +60,7 @@ test('V3 versioned Graph create returns content-verified receipt and list/read',
  const p=await f.api.create(path,d);
  assert.equal(p.path,path);assert.equal(p.name,'draft-v3.json');
  assert.equal((await f.api.read(path)).value.format,'flow-lps-draft');
+ assert.equal(f.requests.filter(x=>x.url==='https://files.sharepoint.com/v3-draft').length,1,'fresh unchanged metadata reuses verified content');
  assert.equal((await f.api.list(f.folder)).length,1);
  assert.deepEqual((await f.api.list(f.folder))[0].name,'draft-v3.json');
  assert.equal(f.requests.filter(x=>x.method==='PUT').length,1);
@@ -94,4 +95,16 @@ test('V3 approval Graph adapter refuses Sync writes and cross-folder document ty
  await assert.rejects(f.api.create(base+'/Approved/approved-v3.json',
   {...freeze,format:'flow-lps-approved-plan',status:'DRAFT'}),/fajlnev/);
  assert.equal(f.requests.length,0,'Rejected requests must never reach Graph');
+});
+
+test('valid V3 ahead and result journal names reach Graph, are create-only and verified',async()=>{
+ for(const [suffix,doc] of [
+ ['ahead',{format:'mflow-versioned-sync-ahead',status:'WRITE_AHEAD',maximumMutationAttempts:1}],
+ ['result',{format:'mflow-versioned-sync-result',status:'ITEM_READBACK_VERIFIED',mutationAttempts:1}]]){
+ const f=fixture('Sync'),path=f.folder+'/sync-v3-step-000001-'+suffix+'.json';
+ const d={schemaVersion:1,boardId:'5107075373',planVersion:3,step:1,automaticallyRetryable:false,...doc};
+ const receipt=await f.api.create(path,d);
+ assert.equal(receipt.path,path);assert.equal((await f.api.read(path)).value.format,d.format);
+ assert.equal(f.requests.filter(x=>x.method==='PUT').length,1);
+ }
 });
