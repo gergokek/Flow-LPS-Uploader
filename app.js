@@ -575,9 +575,21 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   approvedV1SyncOutput.textContent='V3.0 inditas: varakozas az Uploader kulon jovahagyasara. A jovahagyasi gomb a 4. szakaszban jelenik meg. Monday-iras: 0.';
   if(!planningStartConsentHost)
    throw Error('A V3 Uploader-jovahagyas felulete nem erheto el. Tervinditas tiltva.');
-  const accepted=await requestPlanningStartConsent({
-   host:planningStartConsentHost,state,isCurrent:current});
-  if(!accepted||!current())throw Error('Az Uploader tervinditast megszakitottak.');
+  let accepted=false;
+  try{
+   accepted=await requestPlanningStartConsent({
+    host:planningStartConsentHost,state,isCurrent:current});
+  }catch(error){
+   approvedV1SyncOutput.textContent='A V3.0 masodik jovahagyasa nem sikerult: '+
+    String(error?.message||error)+
+    '\nNem indult uj terv ezen a lepesen. Az aktualis SharePoint-allapotot ellenorizni kell.';
+   throw error;
+  }
+  if(!accepted||!current()){
+   approvedV1SyncOutput.textContent='A V3.0 masodik jovahagyasat megszakitottak vagy a kapcsolat megvaltozott. '+
+    'Uj SharePoint-iras meg nem indult.';
+   throw Error('Az Uploader tervinditast megszakitottak.');
+  }
   const run=await store.planningActions.execute({...args,
    mondayConfirmed:true,uploaderConfirmed:true});
   if(!current()||run.action!=='START_NEXT'||run.planVersion!==state.planVersion)
