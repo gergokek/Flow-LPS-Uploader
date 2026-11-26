@@ -73,5 +73,6 @@ export function projectVerifiedCycleState({boardId,approvedV0,oldV1Claim,
   boardVerified:boardFingerprint===boardExpected});
  return Object.freeze({...state,verifiedVersionCount:versions.length,
   preparedFolders:[...(folderCatalog.preparedFolders||[])],
+  predecessorCompletionSha256:a2.status==='SYNC_COMPLETED'?a2.completionSha256:null,
   boardMatches:boardFingerprint===boardExpected,readOnly:true,mondayWrites:0});
 }
