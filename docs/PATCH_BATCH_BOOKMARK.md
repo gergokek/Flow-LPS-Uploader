@@ -47,3 +47,13 @@ Source integration completed:
 Manual testing remains PAUSED. No real V3 files were created by development or CI, and no live Monday task was mutated.
 
 Open next: generalized V3+ Approved and Sync engines, partial/uncertain version-start recovery with explicit user reconciliation, cross-version V4+ predecessor proof, final one-shot patch-batch acceptance. Actual live SharePoint + Monday TEST end-to-end behavior remains unverified until the eventual user acceptance.
+
+## PATCH BATCH #3 - guarded approval storage (2026-11-26)
+
+- Common read-only V3+ approval contract exists in Monday and Uploader branches, with strict predecessor/DRAFT lineage, SHA/path validation and approved receipt models.
+- versioned-graph-files.js now supports V3 approval folder read/list and only create-only freeze, Approved and approval-receipt writes. Sync remains strictly read-only.
+- versioned-approval-storage.js (Uploader TEST) adds separately confirmed Monday and Uploader consent, fresh identity/board verification, immutable prefix reconciliation, create-only writes and readback. Ambiguous responses stop the current instance; a new instance rechecks before continuation.
+- New tests exercise success, duplicates, uncertain response recovery, stale board, identity changes, unexpected Sync files and denied writes.
+- Historical V1/V2 and production main are unchanged. No live Monday bridge, no enabled sync mutation, no TEST deploy of this adapter and no real SharePoint/Monday project writes.
+- The first storage-test CI exposed a test-fixture cloning error, fixed in commit 362f92ba364f45a5b000bbac89eca679e40d476b. Verify CI run 45832364819 before marking the package green.
+- Manual test pause remains active. Next: verified generic approval read-only bridge, then guarded V3+ per-item journal and full sync verification.
