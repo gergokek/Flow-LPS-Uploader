@@ -288,7 +288,7 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
  return singleSession;
 },onApprovePlan:async request=>{
  const account=msal.getAllAccounts()[0];
- if(!singleStore||!singleSession||singleSession.planVersion===2||!singleSessionQueue||
+ if(!singleStore||!singleSession||singleSession.planVersion!==1||!singleSessionQueue||
     !account||!singleSessionQueue.state().canApprove||
     singleSession.status!=='SAVED'&&singleSession.status!=='ACTIVE'||
     singleSession.sessionId!==request.expectedSessionId||
