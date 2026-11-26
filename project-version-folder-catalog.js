@@ -52,20 +52,58 @@ export function createVersionFolderCatalog({boardId,driveId,getAccessToken,
   ok(!next,'Version folder enumeration exceeded pagination limit.');
   guard();return output.sort((a,b)=>a-b);
  }
+ async function inspectFolder(version){
+  const layout=versionLayout(boardId,version);
+  ok(!layout.legacy,'Legacy version cannot be physically enumerated.');
+  let hasEvidence=false;
+  for(const folder of [layout.session,layout.drafts,layout.approved,layout.sync]){
+   const path='/root:/'+folder.split('/').map(encodeURIComponent).join('/');
+   const meta=await api(path+'?$select=id,folder,parentReference');
+   ok(meta.ok,'A verzio almappaja hianyzik vagy hibas: '+folder);
+   const m=await meta.json();
+   ok(m.id&&m.folder&&m.parentReference?.driveId===driveId,
+    'A verzio almappa nem ellenorzott SharePoint mappa.');
+   let next=root+'/items/'+encodeURIComponent(m.id)+'/children?$select=id,name,file,folder&$top=200';
+   const seen=new Set();
+   for(let page=0;next&&page<maxPages;page++){
+    ok(next.startsWith(root+'/')&&!seen.has(next),
+     'Untrusted/incomplete version folder page.');
+    seen.add(next);
+    const r=await api(next.slice(root.length));
+    ok(r.ok,'Version content HTTP '+r.status);
+    const data=await r.json();
+    ok(Array.isArray(data?.value),'Invalid version content list.');
+    for(const item of data.value){
+     ok(item.id&&item.file&&typeof item.name==='string',
+      'Unexpected subfolder or invalid file in version tree.');
+     hasEvidence=true;
+    }
+    next=data['@odata.nextLink']||null;
+   }
+   ok(!next,'Incomplete version content pagination.');
+  }
+  return hasEvidence?'HAS_FILES':'PREPARED_EMPTY';
+ }
  async function inspect({legacyVersions=[]}={}){
   ok(Array.isArray(legacyVersions)&&legacyVersions.every(n=>
    Number.isSafeInteger(n)&&n>0&&n<=9999&&isLegacyVersion(boardId,n))&&
    new Set(legacyVersions).size===legacyVersions.length,
    'Legacy plan versions must be explicitly verified.');
   const folders=await listFolders();
-  const combined=[...legacyVersions,...folders].sort((a,b)=>a-b);
+  const preparedFolders=[],occupiedFolders=[];
+  for(const version of folders){
+   const className=await inspectFolder(version);
+   if(className==='PREPARED_EMPTY')preparedFolders.push(version);
+   else occupiedFolders.push(version);
+  }
+  const combined=[...legacyVersions,...occupiedFolders].sort((a,b)=>a-b);
   ok(new Set(combined).size===combined.length,
    'Legacy and versioned plan stores overlap.');
   ok(combined.every((n,i)=>n===i+1),
    'A gap exists in the verified plan version list.');
   return Object.freeze({complete:true,versions:combined,
    paths:Object.freeze(combined.map(n=>versionLayout(boardId,n))),
-   folderVersions:folders,legacyVersions:[...legacyVersions],readOnly:true,
+   folderVersions:occupiedFolders,preparedFolders,legacyVersions:[...legacyVersions],readOnly:true,
    projectWrites:0});
  }
  return Object.freeze({inspect});
