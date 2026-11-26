@@ -36,8 +36,9 @@ export function createVersionedApprovalSource({inspectV2,read,list,
   ok(sessions.every(x=>allowedSessions.has(x.name))&&
    drafts.every(x=>x.name===n.baseline||/^draft-v3-r\d{6}\.json$/.test(x.name))&&
    approved.every(x=>x.name===lifecycleFileName(3,'approved'))&&
-   sync.length===0,
-   'Nem vart V3 fajl vagy mar megkezdett szinkron. Jovahagyas tiltva.');
+   sync.every(x=>x.name===lifecycleFileName(3,'completion')||
+    /^sync-v3-step-\d{6}-(ahead|result)\.json$/.test(x.name)),
+   'Nem vart V3 fajl vagy szinkronnaplo. Ellenorzes tiltva.');
   const revs=drafts.filter(x=>x.name!==n.baseline)
    .sort((a,b)=>a.name.localeCompare(b.name));
   ok(revs.length<=1000&&revs.every((item,i)=>item.name===draftFileName(3,i+1)),
