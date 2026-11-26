@@ -57,3 +57,13 @@ Open next: generalized V3+ Approved and Sync engines, partial/uncertain version-
 - Historical V1/V2 and production main are unchanged. No live Monday bridge, no enabled sync mutation, no TEST deploy of this adapter and no real SharePoint/Monday project writes.
 - The first storage-test CI exposed a test-fixture cloning error, fixed in commit 362f92ba364f45a5b000bbac89eca679e40d476b. Verify CI run 45832364819 before marking the package green.
 - Manual test pause remains active. Next: verified generic approval read-only bridge, then guarded V3+ per-item journal and full sync verification.
+
+## PATCH BATCH #3 - V3 TEST approval UI checkpoint (2026-11-26)
+
+- Monday: a V3-specific planning panel shows session/revision, a live full Monday-board-checked **local-only** DRAFT change preview, and a before/after field table. V1-specific approval controls remain unavailable on V3.
+- Uploader: V3 approval/sync panel reads Session, Drafts, Approved and Sync folder listings after Microsoft login; inventory statuses explicitly NEVER assert approval or sync completion from filenames alone.
+- Existing V3 Graph adapter supports approval files but no UI path can yet create an Approved Plan. The versioned approval storage remains unexposed, pending separately verified Monday-Uploader authorization protocol, complete SharePoint lineage evidence and writeback engine.
+- Do not confuse the local preview or file inventory with a final authorization, full verified Approved Plan or Monday sync.
+- TEST feature branches only. No real board writes, V3 session allocation, Approved/Sync user writes or historical V1/V2 migration. Manual acceptance remains paused.
+- New regression tests: Monday tests/versioned-approval-ui-preview.test.mjs; Uploader tests/versioned-approval-status-ui.test.js. Verify newest GitHub CI runs before declaring release successful.
+- Next: origin/nonce/session/consent-bound V3 review RPC, verified freeze/approval integration, journaled sync; then a single acceptance test and TEST deployment.
