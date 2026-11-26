@@ -17,3 +17,9 @@ details.legacy-tests>section{margin-top:1rem}
 #approveV1FullSync{background:#195b94;color:#fff;border-color:#195b94}
 
 #approveV2Session{background:#195b94;color:#fff;border-color:#195b94}
+
+/* V3 start approval is a primary, independent control in the TEST Uploader. */
+#planningStartConsentHost:has(#planningStartConsent){position:sticky;top:.75rem;z-index:5}
+#planningStartConsent{border:2px solid #195b94;background:#eaf3ff;box-shadow:0 7px 24px #18304422}
+#planningStartConsent #approvePlanningStart{background:#195b94;color:#fff;border-color:#195b94}
+#planningStartConsent #cancelPlanningStart{background:#fff}
