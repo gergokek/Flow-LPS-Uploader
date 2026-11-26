@@ -39,6 +39,7 @@ const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
 // The separate /test/ preview uses the existing registered SPA callback.
 // The registered production callback is unchanged, while app assets remain isolated.
 const testUi=import.meta.env.VITE_MFLOW_TEST_PREVIEW==='1';
+if(testUi)document.body.classList.add('current-planning-test');
 const redirectUri=new URL(testUi?'../redirect.html':'./redirect.html',window.location.href).href;
 const button=document.querySelector('#login');
 const status=document.querySelector('#authResult');
@@ -76,9 +77,10 @@ function showAccount(account){
  v3InventoryButton.disabled=!account||projectBoard.value.trim()!=='5107075373'||!testUi;
  // The TEST session may only be started from the authenticated Monday opener.
  const connected=!!singleBridge?.active&&singleBridge.ready();
- createSingleDraft.disabled=!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
- resumeSingleDraft.disabled=!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
+ createSingleDraft.disabled=testUi||!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
+ resumeSingleDraft.disabled=testUi||!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
  inspectApprovedV1Button.disabled=!account||!connected||!!singleSession||!!singleSyncSelected||syncInspectBusy||projectBoard.value.trim()!=='5107075373';
+ inspectApprovedV1Button.hidden=testUi&&!!singleSyncSelected;
  draftSaveButton.disabled=!account||!draftTransferText;
  editedSave.disabled=!account||!editedDraftText;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
@@ -822,7 +824,7 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
 },onStatus:state=>{
  if(state==='ready'){
   showAccount(msal.getAllAccounts()[0]||null);
-  singleDraftOutput.textContent='Kapcsolat létrejött a Monday TEST-alkalmazással. Jelentkezz be, majd hozd létre vagy folytasd a DRAFT-ot.';
+  singleDraftOutput.textContent=testUi?'A Monday TEST-kapcsolat létrejött. Jelentkezz be és add át a projektkapcsolatot.':'Kapcsolat létrejött a Monday TEST-alkalmazással. Jelentkezz be, majd hozd létre vagy folytasd a DRAFT-ot.';
  }
  if(state==='blocked')singleDraftOutput.textContent=
   'A DRAFT-mentés bizonytalan. A munkamenet csak független SharePoint-ellenőrzés után folytatható.';
@@ -914,18 +916,18 @@ async function inspectApprovedV1ForSync(){
   return;
  }
  syncInspectBusy=true;inspectApprovedV1Button.disabled=true;
- approvedV1SyncOutput.textContent='Approved Plan V1, V0, teljes DRAFT-lánc, freeze és jóváhagyási nyugta független SharePoint-visszaellenőrzése...';
+ approvedV1SyncOutput.textContent='Projektkapcsolat: a történeti SharePoint-bizonyítékok független ellenőrzése...';
  try{
   const store=singleStoreFor(account,boardId);
   const selected=await store.inspectApprovedSync({createdBy:account.homeAccountId});
   if(!singleBridge.approvedForSync(selected))
    throw Error('A Monday TEST nem fogadta el az Approved V1 szinkronellenőrzési átadást.');
   singleSyncStore=store;singleSyncSelected=selected;
-  approvedV1SyncOutput.textContent='Approved Plan V1 SharePoint-verifikáció sikeres.\n'+
+  approvedV1SyncOutput.textContent='Projektkapcsolat SharePoint-verifikációja sikeres. A Monday ellenőrzi az aktuális tervet.\n'+
    'Fájl: '+selected.receipt.name+'\nSHA-256: '+selected.receipt.sha256+
    '\nFeladatok: '+selected.approvedPlan.plan.working.length+
    '\nMódosítás a Monday-boardon: 0.\n'+
-   'A részletes szinkronelőnézetet a Monday TEST legalján nyisd meg.';
+   'Az aktuális tervállapotot a Monday TEST projektpanelje mutatja.';
  }catch(error){
   approvedV1SyncOutput.textContent='Approved V1 szinkronellenőrzés sikertelen: '+
    (error?.message||error)+
