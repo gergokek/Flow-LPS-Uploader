@@ -1,6 +1,11 @@
 // Versioned SharePoint paths. All plan versions share one naming contract.
 // Legacy V1/V2 locations are immutable; NO migration or silent fallback.
+// The existing completed TEST board must preserve its original V1/V2 paths.
+ // All other, newly created projects start in V0001 from their first DRAFT.
+export const LEGACY_TEST_BOARD='5107075373';
 export const LEGACY_PLAN_VERSIONS=Object.freeze([1,2]);
+export const isLegacyVersion=(boardId,version)=>
+ boardId===LEGACY_TEST_BOARD&&LEGACY_PLAN_VERSIONS.includes(version);
 export const VERSION_FOLDERS=Object.freeze(['Session','Drafts','Approved','Sync']);
 export const VERSION_ROOT='Versions';
 export const FORMAT_VERSION=1;
@@ -16,7 +21,7 @@ export function versionLayout(boardId,version){
   throw Error('Invalid Monday board ID.');
  requireVersion(version);
  const root='Projects/'+boardId;
- if(version<=2){
+ if(isLegacyVersion(boardId,version)){
   return Object.freeze({boardId,version,legacy:true,root,
    session:root+'/Draft-Plans',drafts:root+'/Draft-Plans',
    approved:root+'/Approved-Plans',sync:root+'/Sync-Status',
@@ -55,7 +60,7 @@ export function lifecycleFileName(version,kind,step){
  throw Error('Invalid lifecycle artifact.');
 }
 export function versionIndex(boardId,highestVersion=2){
- if(!Number.isSafeInteger(highestVersion)||highestVersion<2||highestVersion>9999)
+ if(!Number.isSafeInteger(highestVersion)||highestVersion<1||highestVersion>9999)
   throw Error('Invalid version index range.');
  return Object.freeze(Array.from({length:highestVersion},(_,i)=>versionLayout(boardId,i+1)));
 }
@@ -63,14 +68,19 @@ export function versionIndex(boardId,highestVersion=2){
 // never by folder provisioning or by inspecting old version files.
 export function makeVersionInfo({boardId,version,sessionId,source,createdAt}){
  const layout=versionLayout(boardId,version);
+ const firstVersion=version===1;
  if(layout.legacy||typeof sessionId!=='string'||!(/^[a-f0-9-]{36}$/i).test(sessionId)||
   typeof source!=='object'||!source||source.planVersion!==version-1||
-  typeof source.completionSha256!=='string'||!(/^[0-9a-f]{64}$/i).test(source.completionSha256)||
+  typeof (firstVersion?source.approvedSha256:source.completionSha256)!=='string'||
+  !(/^[0-9a-f]{64}$/i).test(firstVersion?source.approvedSha256:source.completionSha256)||
   Number.isNaN(Date.parse(createdAt)))
   throw Error('A version manifest must reference a verified predecessor.');
  return Object.freeze({schemaVersion:FORMAT_VERSION,format:'mflow-plan-version-index',
   boardId,planVersion:version,sessionId,status:'ACTIVE',
-  sourcePlanVersion:source.planVersion,sourceCompletionSha256:source.completionSha256,
+  sourcePlanVersion:source.planVersion,
+  sourceReferenceKind:firstVersion?'APPROVED_V0':'COMPLETED_PREDECESSOR',
+  sourceCompletionSha256:firstVersion?null:source.completionSha256,
+  sourceApprovedV0Sha256:firstVersion?source.approvedSha256:null,
   createdAt,legacy:false,paths:{session:layout.session,drafts:layout.drafts,
    approved:layout.approved,sync:layout.sync},
   writesToMonday:0});
