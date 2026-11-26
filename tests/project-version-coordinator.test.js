@@ -46,7 +46,7 @@ test('a changed catalog between checks blocks starting a new version',async()=>{
  const coordinator=createProjectVersionCoordinator({boardId,readProjectState:async()=>{
   count++;return {boardId,approvedV0,versions:count===1?[complete(1)]:[complete(1),draft(2)],
    catalogComplete:true,boardVerified:true};
- },storeForVersion:async()=>({begin:async()=>{started++;}})});
+ },storeForVersion:async()=>({inspect:async()=>{},begin:async()=>{started++;}})});
  await assert.rejects(coordinator.execute({userConfirmed:true}),/changed/);
  assert.equal(started,0);
 });
