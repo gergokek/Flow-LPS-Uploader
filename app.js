@@ -366,7 +366,7 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   if(!current()||state.action!=='START_NEXT'||state.boardMatches!==true||
     state.planVersion!==3||
     state.predecessorCompletionSha256!==payload.expectedPredecessorSha256||
-    state.verifiedVersionCount!==2)
+    state.verifiedVersionCount!==state.planVersion-1)
    throw Error('Nem teljes vagy megvaltozott a V2 utani projektallapot.');
   approvedV1SyncOutput.textContent='Uj terv inditasa kulon Uploader-jovahagyasra var. Monday-iras: 0.';
   const accepted=await requestPlanningStartConsent({
@@ -374,7 +374,7 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   if(!accepted||!current())throw Error('Az Uploader tervinditast megszakitottak.');
   const run=await store.planningActions.execute({...args,
    mondayConfirmed:true,uploaderConfirmed:true});
-  if(!current()||run.action!=='START_NEXT'||run.version!==state.planVersion)
+  if(!current()||run.action!=='START_NEXT'||run.planVersion!==state.planVersion)
    throw Error('A tervinditas eredmenye nem egyezik az ellenorzott verzioval.');
   const selected=await verifiedVersionedSelection(run.report);
   if(!current()||selected.planVersion!==state.planVersion)
