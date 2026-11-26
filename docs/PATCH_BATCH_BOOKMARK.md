@@ -29,6 +29,6 @@ Completed in source (not yet a user-approved end-to-end V3 session):
 - Version-bound draft bridge: V3 edits cannot be sent to V1/V2 sessions; V1 approval RPC cannot approve a V3 draft.
 - Monday editor remembers the verified selected planVersion rather than labeling everything V1.
 - Uploader unit/build CI succeeded on patch source at run 45800509430.
-- Monday/Uploader integration CI pins Uploader patch commit baf736461ed8dd1be70bf4fa9a733aa28aebf568. Workflow run 45800591964 must be checked for its final verdict.
+- Monday/Uploader integration CI pins Uploader patch commit baf736461ed8dd1be70bf4fa9a733aa28aebf568. Workflow run 45800591964 completed SUCCESS: paired Monday + pinned Uploader regression, TEST-only build and synthetic Chromium browser checks passed.
 
 Still NOT done: public execution RPC and dual-confirmation UX, complete integration of V3 session activation into the Monday editor autosave queue, generic Approved/Sync for V3+, and a one-shot user acceptance checklist. Do not interpret automated synthetic proof as an actual user V3 session. Continue PATCH BATCH mode and request NO manual test yet.
