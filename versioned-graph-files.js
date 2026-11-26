@@ -108,7 +108,8 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
    document.schemaVersion===1&&document.boardId===boardId,
    'V3 fajl nem ervenyes dokumentum.');
   // Every create-only destination is restricted to its lifecycle folder.
-  // Sync remains READ-ONLY until the separate verified journal writer exists.
+  // Sync creates are restricted by exact name/type/status. Full validation is
+  // independently required by the journal storage before mutation.
   const valid=(target.folder===layout.session&&target.name==='version-info.json'&&
     document.format==='mflow-plan-version-index'&&document.planVersion===3)||
    (target.folder===layout.session&&target.name==='active-session-v3.json'&&
@@ -126,7 +127,27 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
    (target.folder===layout.approved&&target.name==='approved-v3.json'&&
     document.format==='flow-lps-approved-plan'&&document.planVersion===3&&
     document.status==='APPROVED'&&document.isApprovedPlan===true&&
-    document.mondaySyncAllowed===false);
+    document.mondaySyncAllowed===false)||
+   (target.folder===layout.sync&&
+    /^sync-v3-step-[0-9]{6}-ahead\\.json$/.test(target.name)&&
+    document.format==='mflow-versioned-sync-ahead'&&
+    document.planVersion===3&&document.status==='WRITE_AHEAD'&&
+    document.maximumMutationAttempts===1&&document.automaticallyRetryable===false&&
+    Number.isSafeInteger(document.step)&&document.step>=1&&
+    target.name==='sync-v3-step-'+String(document.step).padStart(6,'0')+'-ahead.json')||
+   (target.folder===layout.sync&&
+    /^sync-v3-step-[0-9]{6}-result\\.json$/.test(target.name)&&
+    document.format==='mflow-versioned-sync-result'&&document.planVersion===3&&
+    ['ITEM_READBACK_VERIFIED','ITEM_UNCERTAIN','ABORTED_NO_WRITE'].includes(document.status)&&
+    [0,1].includes(document.mutationAttempts)&&
+    document.automaticallyRetryable===false&&
+    Number.isSafeInteger(document.step)&&document.step>=1&&
+    target.name==='sync-v3-step-'+String(document.step).padStart(6,'0')+'-result.json')||
+   (target.folder===layout.sync&&target.name==='sync-v3-completed.json'&&
+    document.format==='mflow-versioned-sync-final'&&document.planVersion===3&&
+    document.status==='V3_SYNC_COMPLETED'&&document.fullBoardReadbackMatches===true&&
+    document.approvedExactMatch===true&&document.remainingTaskCount===0&&
+    document.automaticallyRetryable===false);
   ok(valid,'Nem illeszkedik a V3 fajlnev, celmappa es dokumentumtipus.');
   const bytes=new TextEncoder().encode(JSON.stringify(document,null,2)+'\n');
   ok(bytes.byteLength>0&&bytes.byteLength<=MAX_DRAFT_BYTES,
