@@ -49,6 +49,21 @@ test('V3 with verified active session resumes V3, not V4',()=>{
  assert.equal(x.action,'RESUME_DRAFT');assert.equal(x.planVersion,3);
  assert.equal(x.revision,2);
 });
+test('partially created V3 manifest, claim or freeze blocks new plan and triggers read-only manual review',()=>{
+ for(const status of ['START_INCOMPLETE','APPROVAL_FROZEN']){
+  const x=projectVerifiedCycleState({...options,
+   folderCatalog:{complete:true,versions:[1,2,3],preparedFolders:[]},
+   v3Report:{status,planVersion:3,revision:0}});
+  assert.equal(x.action,'MANUAL_REVIEW');
+  assert.equal(x.status,'BLOCKED');
+  assert.equal(x.planVersion,3);
+  assert.equal(x.verifiedVersionCount,2);
+  assert.equal(x.boardMatches,true);
+  assert.equal(x.mondayWrites,0);
+  assert.equal(x.readOnly,true);
+  assert.match(x.reason,/V3/);
+ }
+});
 test('missing or inconsistent V1/V2 lineage and partial V3 fail closed',()=>{
  assert.throws(()=>projectVerifiedCycleState({...options,
   oldV1Claim:{...oldV1Claim,sha256:H('b')}}));
