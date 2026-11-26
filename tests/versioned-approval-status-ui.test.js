@@ -18,7 +18,7 @@ test('V3 inventory panel is read-only and never approves based on a filename',()
  assert.equal(approved.status,'APPROVAL_FILES_REQUIRE_VERIFICATION');
  assert.equal(approved.approvalVerified,false);
  assert.equal(approved.syncVerified,false);
- assert.match(versionedApprovalInventoryMessage(approved),/nem igazolt/);
+ assert.match(versionedApprovalInventoryMessage(approved),/Approved igazolt: nem/);
  args.syncFiles.push(file('sync-v3-completed.json'));
  assert.equal(summarizeVersionedApprovalInventory(args).status,
   'SYNC_FILES_REQUIRE_VERIFICATION');
