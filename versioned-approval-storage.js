@@ -58,6 +58,15 @@ export function createVersionedApprovalStore({
   const [freeze,approved,approval]=await Promise.all([
    pair(model,'session',n.freeze),pair(model,'approved',n.approved),
    pair(model,'session',n.approval)]);
+  const matching=(listed,record,name)=>{
+   const file=listed.find(x=>x.name===name);
+   return file?record?.receipt?.id===file.id&&record.receipt.eTag===file.eTag:
+    record===null;
+  };
+  ok(matching(sessions,freeze,n.freeze)&&
+     matching(sessions,approval,n.approval)&&
+     matching(approvedFiles,approved,n.approved),
+   'A V3 Approved/Session lista es a tartalmi visszaolvasas elter.');
   const [s2,a2,y2]=await Promise.all([
    list(n.layout.session),list(n.layout.approved),list(n.layout.sync)]);
   guard();
