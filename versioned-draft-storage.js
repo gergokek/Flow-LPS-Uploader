@@ -1,6 +1,6 @@
 // V3 TEST successor session storage, create-only with verified restart.
 // All file operations are injected; this module cannot call Monday/Graph itself.
-import {pilotAssert as ok,pilotStable as stable,pilotHex,pilotFileSha,pilotUuid}
+import {pilotAssert as ok,pilotStable as stable,pilotHex,pilotFileSha,pilotUuid,pilotFingerprint}
  from './v1-pilot-contract.js';
 import {versionFilePath,draftFileName,lifecycleFileName} from './version-workspace-layout.js';
 import {inspectPredecessor,successorNames,makeSuccessorClaim,makeSuccessorManifest,
@@ -24,9 +24,10 @@ const catalog=files=>stable(files.map(f=>({id:f.id,name:f.name,eTag:f.eTag}))
 // sync journal and terminal receipt. V4+ cannot be enabled without an equivalent
 // successor verifier, even though their storage paths are generic already.
 export function createVersionedDraftStore({version=3,inspectSource,read,list,create,
- ensureFolders,now=()=>new Date(),randomUUID=()=>crypto.randomUUID(),
+ ensureFolders,readBoard,sourceVerifier=inspectPredecessor,
+ now=()=>new Date(),randomUUID=()=>crypto.randomUUID(),
  check=()=>{},checkPinned=()=>{}}={}){
- for(const fn of [inspectSource,read,list,create,ensureFolders,now,
+ for(const fn of [inspectSource,read,list,create,ensureFolders,readBoard,sourceVerifier,now,
   randomUUID,check,checkPinned])ok(typeof fn==='function','Hibas verzios tarolo fuggoseg.');
  ok(version===3,'V4+ munkamenet-kezelese meg nincs teljesen igazolva.');
  let busy=false,blocked=false;
@@ -35,7 +36,7 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
  const done=()=>{busy=false;};
  async function source(args){
   guard();const evidence=await inspectSource(args);guard();
-  const model=await inspectPredecessor({predecessor:evidence,version,
+  const model=await sourceVerifier({predecessor:evidence,version,
    editorId:args.editorId,createdBy:args.createdBy,now:now().getTime()});
   guard();return {evidence,model};
  }
@@ -97,12 +98,15 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
    return clone({...s,model:undefined,readOnly:true});
   }finally{done();}
  }
- function checkBoard(args,m){
+ async function checkBoard(args,m){
   const at=Date.parse(args.boardVerifiedAt),t=now().getTime();
   ok(args.editorId===m.editorId&&args.createdBy===m.createdBy&&
    args.expectedPredecessorSha256===m.source.completionSha256&&
    args.boardFingerprint===m.fingerprint&&Number.isFinite(at)&&at<=t+5000&&
    t-at<=120000,'Nincs friss, egyezo board- es V2 nyugtaigazolas.');
+  const board=await readBoard();guard();
+  ok(pilotFingerprint(board)===m.fingerprint,
+   'Az aktualis TEST board elter a lezart V2 vegallapottol.');
  }
  async function write(model,kind,name,document){
   guard();const path=namespaced(model,kind,name);
@@ -118,7 +122,7 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
    ok(args.userConfirmed===true&&pilotUuid(args.executionId),
     'V3 inditas nincs kifejezetten megerositve.');
    let {model}=await source(args);
-   checkBoard(args,model);
+   await checkBoard(args,model);
    await checkPinned(args,model);
    let report=await scan(model);
    ok(!report.hasFreeze&&!report.hasApproval&&!report.hasClosure,
@@ -131,7 +135,7 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
    ok(stable(fresh.model.source)===stable(model.source)&&
      fresh.model.fingerprint===model.fingerprint,
      'A V2 elozmeny megvaltozott.');
-   model=fresh.model;checkBoard(args,model);
+   model=fresh.model;await checkBoard(args,model);
    await checkPinned(args,model);
    report=await scan(model);
    let claim=report.claim,manifest=report.manifest;
@@ -159,7 +163,7 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
       'V3 session ID megvaltozott.');
    }
    if(!report.baseline){
-    await checkPinned(args,model);checkBoard(args,model);
+    await checkPinned(args,model);await checkBoard(args,model);
     await write(model,'drafts',n.baseline,makeSuccessorBaseline(model,claim.document));
    }
    const verified=await scan(model);
