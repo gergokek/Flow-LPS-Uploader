@@ -200,3 +200,32 @@ test('V3 revision handoff retains planVersion and cannot invoke V1 approval hand
   x.payload.revision===1));
  a.bridge.close();
 });
+
+test('planning-open is origin/pin protected and binds V3 to its save-revision queue',async()=>{
+ const v3id='33333333-3333-4333-8333-333333333333';
+ const a=ready(async request=>{
+  if(request.action!=='planning-open')throw Error('unexpected action');
+  return {status:'ACTIVE',planVersion:3,sessionId:v3id,revision:2,
+   draft:{boardId,version:2,session:{sessionId:v3id,planVersion:3}},
+   receipt:{sha256:'f'.repeat(64),eTag:'v3etag'},mondayWrites:0};
+ });
+ a.emit('hello');
+ const sha='b'.repeat(64),source='d'.repeat(64);
+ assert.equal(a.bridge.approvedForSync({status:'APPROVED_V1_VERIFIED',
+  boardId,sessionId,planVersion:1,revision:4,
+  receipt:{name:'approved-v1.json',sha256:sha,eTag:'etag',
+   verification:'content-sha256-and-etag'},sourceDraftSha256:source,
+  approvedPlan:{sourceDraft:{sha256:source}},
+  mondayWrites:0,mondaySyncAllowed:false}),true);
+ const request={action:'planning-open',requestId:'44444444-4444-4444-8444-444444444444',
+  payload:{editorId:'96423073',boardFingerprint:'trusted'},
+  expectedApprovedSha256:sha,expectedSessionId:sessionId,expectedRevision:4};
+ await a.emit('v1-pilot-request',request,'https://forged.example');
+ assert.equal(a.bridge.session(),null);
+ await a.emit('v1-pilot-request',request);
+ assert.equal(a.bridge.session()?.planVersion,3);
+ await a.emit('save-revision',{requestId:'55555555-5555-4555-8555-555555555555',
+  draft:{boardId,version:3,session:{sessionId:v3id,planVersion:1}}});
+ assert.equal(a.calls(),0);
+ a.bridge.close();
+});
