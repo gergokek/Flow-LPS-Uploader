@@ -56,6 +56,7 @@ const resumeSingleDraft=document.querySelector('#resumeSingleDraft');
 const singleDraftOutput=document.querySelector('#singleDraftResult');
 const inspectApprovedV1Button=document.querySelector('#inspectApprovedV1');
 const approvedV1SyncOutput=document.querySelector('#approvedV1SyncResult');
+const planningStartConsentHost=document.querySelector('#planningStartConsentHost');
 let draftTransferText=null;
 const draftSaveButton=document.querySelector('#saveDraft');
 const draftSaveResult=document.querySelector('#draftSaveResult');
@@ -571,9 +572,11 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
     state.predecessorCompletionSha256!==payload.expectedPredecessorSha256||
     state.verifiedVersionCount!==state.planVersion-1)
    throw Error('Nem teljes vagy megvaltozott a V2 utani projektallapot.');
-  approvedV1SyncOutput.textContent='Uj terv inditasa kulon Uploader-jovahagyasra var. Monday-iras: 0.';
+  approvedV1SyncOutput.textContent='V3.0 inditas: varakozas az Uploader kulon jovahagyasara. A jovahagyasi gomb a 4. szakaszban jelenik meg. Monday-iras: 0.';
+  if(!planningStartConsentHost)
+   throw Error('A V3 Uploader-jovahagyas felulete nem erheto el. Tervinditas tiltva.');
   const accepted=await requestPlanningStartConsent({
-   host:approvedV1SyncOutput.parentElement,state,isCurrent:current});
+   host:planningStartConsentHost,state,isCurrent:current});
   if(!accepted||!current())throw Error('Az Uploader tervinditast megszakitottak.');
   const run=await store.planningActions.execute({...args,
    mondayConfirmed:true,uploaderConfirmed:true});
