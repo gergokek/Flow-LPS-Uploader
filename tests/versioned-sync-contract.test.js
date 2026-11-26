@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {inspectV4StartReadiness} from '../versioned-next-cycle-proof.js';
 import assert from 'node:assert/strict';
 import {pilotFingerprint,pilotFileSha,pilotSha,pilotStable,pilotTask}
  from '../v1-pilot-contract.js';
@@ -98,6 +99,16 @@ test('V3 complete write-ahead, readback and final receipt chain',async()=>{
  const complete=await inspectVersionedSyncCycle({...ready,final});
  assert.equal(complete.status,'V3_SYNC_COMPLETED');
  assert.equal(complete.verifiedTaskCount,1);
+ const v4=await inspectV4StartReadiness({report:{...ready,final},
+  verifiedSource:{...f.m},liveBoard:{...f.m.draft.base,
+   tasks:f.m.draft.working},editorId:f.m.editorId,createdBy:f.m.createdBy});
+ assert.equal(v4.status,'V4_READY_TO_START');
+ assert.equal(v4.nextVersion,4);assert.equal(v4.startEnabled,false);
+ assert.equal(v4.source.completionSha256,final.receipt.sha256);
+ await assert.rejects(inspectV4StartReadiness({report:{...ready,final},
+  verifiedSource:{...f.m},liveBoard:{...f.m.draft.base,
+   tasks:[{...f.m.draft.working[0],note:'Drift'}]},
+  editorId:f.m.editorId,createdBy:f.m.createdBy}));
 });
 test('V3 uncertain result blocks journal progression and cannot close',async()=>{
  const f=await fixture(),t=f.m.targets[0];
