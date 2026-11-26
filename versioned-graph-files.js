@@ -2,6 +2,7 @@
 // No Monday writer, no user-controlled paths and no overwrite of existing JSON.
 import {versionLayout,versionFilePath} from './version-workspace-layout.js';
 import {createProjectStorage} from './project-storage.js';
+import {createVerifiedReadCache} from './verified-read-cache.js';
 import {sha256,MAX_DRAFT_BYTES} from './single-draft-session-core.js';
 const blockedHosts=['.sharepoint.com','.sharepointonline.com','.sharepoint-df.com',
  '.1drv.com','.blob.core.windows.net'];
@@ -49,9 +50,13 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
    'Ervenytelen V3 fajlmetaadat.');
   return m;
  }
+ const verifiedReads=createVerifiedReadCache();
  async function read(path){
   checkedPath(path);
-  const first=await metadata(path);if(!first)return null;
+  const first=await metadata(path);guard();
+  if(!first){verifiedReads.discard(path);return null;}
+  const cached=verifiedReads.get(path,first);
+  if(cached){guard();const {size,...value}=cached;return value;}
   ok(first.name===path.split('/').at(-1),'Eltero V3 fajlnev.');
   const response=await graph('/items/'+encodeURIComponent(first.id));
   ok(response.ok,'V3 visszaolvasas HTTP '+response.status);
@@ -74,8 +79,10 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
   const second=await metadata(path);
   ok(second?.id===first.id&&second.eTag===first.eTag&&
    second.size===first.size,'V3 fajl olvasas kozben megvaltozott.');
-  guard();return {value,name:first.name,id:first.id,eTag:first.eTag,
-   sha256:await sha256(bytes)};
+  guard();const record={value,name:first.name,id:first.id,eTag:first.eTag,
+   size:first.size,sha256:await sha256(bytes)};
+  guard();verifiedReads.put(path,record);
+  const {size,...result}=record;return result;
  }
  async function list(folder){
   checkedFolder(folder);const result=new Map(),seen=new Set(),ids=new Set();
@@ -129,14 +136,14 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
     document.status==='APPROVED'&&document.isApprovedPlan===true&&
     document.mondaySyncAllowed===false)||
    (target.folder===layout.sync&&
-    /^sync-v3-step-[0-9]{6}-ahead\\.json$/.test(target.name)&&
+    /^sync-v3-step-[0-9]{6}-ahead\.json$/.test(target.name)&&
     document.format==='mflow-versioned-sync-ahead'&&
     document.planVersion===3&&document.status==='WRITE_AHEAD'&&
     document.maximumMutationAttempts===1&&document.automaticallyRetryable===false&&
     Number.isSafeInteger(document.step)&&document.step>=1&&
     target.name==='sync-v3-step-'+String(document.step).padStart(6,'0')+'-ahead.json')||
    (target.folder===layout.sync&&
-    /^sync-v3-step-[0-9]{6}-result\\.json$/.test(target.name)&&
+    /^sync-v3-step-[0-9]{6}-result\.json$/.test(target.name)&&
     document.format==='mflow-versioned-sync-result'&&document.planVersion===3&&
     ['ITEM_READBACK_VERIFIED','ITEM_UNCERTAIN','ABORTED_NO_WRITE'].includes(document.status)&&
     [0,1].includes(document.mutationAttempts)&&
