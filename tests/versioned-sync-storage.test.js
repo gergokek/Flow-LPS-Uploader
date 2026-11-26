@@ -115,6 +115,8 @@ test('V3 Sync produces only ahead/result/final, with no Monday mutation client',
  assert.equal(after.state.status,'READY_TO_CLOSE');
  assert.equal(after.state.remainingTaskCount,0);
  await store.finish(f.args(after.state));
+ assert.equal((await store.inspect({})).state.status,'V3_SYNC_COMPLETED',
+  'A vegnyugta ugyanabban a kapcsolaton olvashato marad.');
  const completed=await f.store().inspect({});
  assert.equal(completed.state.status,'V3_SYNC_COMPLETED');
  assert.deepEqual(f.writes,[f.names.ahead(1),f.names.result(1),f.names.completed]);
