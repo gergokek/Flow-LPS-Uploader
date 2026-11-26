@@ -4,6 +4,7 @@ import {requestV2SessionConsent} from './v2-session-consent-ui.js';
 import {beginV1FullSyncWithConsent} from './full-sync-consent-ui.js';
 import {createSessionDraftAutosave} from './draft-session-autosave.js';
 import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
+import {verifiedVersionedSelection} from './versioned-session-selection.js';
 import {createImmutableDraftQueue} from './single-draft-write-queue.js';
 import {attachSingleDraftSessionBridge} from './single-draft-session-bridge.js';
 import {attachDraftHandoff} from './draft-handoff-receiver.js';
@@ -348,6 +349,35 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
    '; kovetkezo muvelet: '+state.action+'; verzio: '+(state.planVersion??'-')+
    '; letezo verzio: '+state.verifiedVersionCount+'; Monday iras: 0.';
   return state;
+ }
+ if(request.action==='planning-open'){
+  const store=singleSyncStore,linked=singleSyncSelected,opener=window.opener,
+   args={createdBy,editorId:payload.editorId,boardFingerprint:payload.boardFingerprint};
+  const current=()=>store===singleSyncStore&&linked===singleSyncSelected&&
+   projectBoard.value.trim()==='5107075373'&&singleBridge.active&&singleBridge.ready()&&
+   msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId&&
+   opener&&opener===window.opener&&!opener.closed;
+  if(!current()||singleSession||singleSessionQueue)
+   throw Error('Mar van kivalasztott DRAFT vagy elavult a kapcsolat.');
+  const state=await store.planningActions.inspect(args);
+  if(!current()||state.action!=='RESUME_DRAFT'||state.planVersion!==3)
+   throw Error('Nincs igazolt, folytathato V3 DRAFT.');
+  const report=await store.nextVersion.inspect(args);
+  if(!current())throw Error('A SharePoint kapcsolat megvaltozott.');
+  const selected=await verifiedVersionedSelection(report);
+  if(selected.planVersion!==state.planVersion||selected.revision!==state.revision)
+   throw Error('A V3 allapot megvaltozott a kivalasztas kozben.');
+  const checked=await store.planningActions.inspect(args);
+  if(!current()||checked.action!==state.action||checked.planVersion!==state.planVersion||
+     checked.revision!==state.revision)
+   throw Error('A V3 munkamenet a megnyitas kozben megvaltozott.');
+  const bound={append:work=>store.nextVersion.append({...work,createdBy,
+   editorId:payload.editorId})};
+  installV2EditorQueue(bound,selected);
+  approvedV1SyncOutput.textContent='Igazolt '+selected.versionLabel+
+   ' DRAFT ujranyitva: '+selected.receipt.name+'. Monday-iras: 0.';
+  return selected;
  }
  if(request.action.startsWith('v2-flow-')){
   const flow=singleSyncStore.v2Flow,action=request.action.slice(8),args={...payload,createdBy,requestId:request.requestId};
