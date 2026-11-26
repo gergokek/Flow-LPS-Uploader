@@ -34,7 +34,7 @@ test('V3 provisioning creates only nested empty folders, never copies or overwri
  const calls=[];
  const fetcher=async(url,options={})=>{
   if(options.method==='POST'){
-   const parentId=decodeURIComponent(url.match(/\\/items\\/([^/]+)\\/children/)[1]);
+   const parentId=decodeURIComponent(url.split('/items/')[1].split('/children')[0]);
    const parent=[...folders].find(([,v])=>v.id===parentId)?.[0];
    const data=JSON.parse(options.body);
    assert.equal(data['@microsoft.graph.conflictBehavior'],'fail');
