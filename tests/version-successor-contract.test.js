@@ -73,5 +73,6 @@ test('V3 cannot use a predecessor session ID, or mutate protected fields',async(
  const {claim,baseline}=await workspace();
  const d=structuredClone(baseline.document);d.version=1;
  d.history=[{revision:1,type:'edit',at:now}];d.working[0].name='Replaced protected identity';
- assert.throws(()=>makeNextSuccessorDraft(baseline.document,d,m,claim,await pilotFileSha(baseline.document)));
+ const hash=await pilotFileSha(baseline.document);
+ assert.throws(()=>makeNextSuccessorDraft(baseline.document,d,m,claim,hash));
 });
