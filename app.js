@@ -502,6 +502,40 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
     request.expectedRevision!==singleSyncSelected.revision)
   throw Error('V1 pilot: nincs ellenorzott Approved V1 kapcsolat.');
  const payload=request.payload||{},createdBy=account.homeAccountId;
+ if(request.action==='planning-open-v3-approved'){
+  const selected=singleSyncSelected,store=singleSyncStore,opener=window.opener;
+  const isCurrent=()=>testUi===true&&store===singleSyncStore&&
+   selected===singleSyncSelected&&!singleSession&&!singleSessionQueue&&
+   singleBridge.active&&singleBridge.ready()&&opener&&!opener.closed&&
+   window.opener===opener&&projectBoard.value.trim()==='5107075373'&&
+   msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId;
+  if(!isCurrent()||!/^\d+$/.test(payload.editorId||''))
+   throw Error('Nincs biztonsagos Approved V3 ujranyitasi kapcsolat.');
+  const reviewed=await store.v3Sync.inspect({createdBy,editorId:payload.editorId});
+  const state=reviewed.state,m=state.model;
+  if(!isCurrent()||m?.version!==3||m.boardId!=='5107075373'||
+     !['READY_TO_SYNC','READY_TO_CLOSE','MANUAL_REVIEW_REQUIRED',
+       'V3_SYNC_COMPLETED'].includes(state.status)||
+     !/^[a-f0-9]{64}$/.test(state.approvedSha256||'')||
+     !/^[a-f0-9]{64}$/.test(state.approvalReceiptSha256||'')||
+     m.draftReceipt?.sha256!==m.sourceDraftSha256)
+   throw Error('A V3 Approved Plan vagy szinkronnaplo nem bizonyitott.');
+  const handoff={status:'APPROVED_V3',boardId:'5107075373',
+   planVersion:3,sessionId:m.sessionId,revision:m.revision,
+   sourceDraftSha256:m.sourceDraftSha256,draft:m.draft,
+   receipt:m.draftReceipt,approvedSha256:state.approvedSha256,
+   approvalReceiptSha256:state.approvalReceiptSha256,
+   syncStatus:state.status,verifiedTaskCount:state.verifiedTaskCount,
+   remainingTaskCount:state.remainingTaskCount,mondayWrites:0};
+  if(!isCurrent())throw Error('Az Approved V3 ujranyitasa kozben fiokvaltas tortent.');
+  singleSession={...handoff,receipt:handoff.receipt};
+  approvedV1SyncOutput.textContent='Jovahagyott V3.'+m.revision+
+   ' terv ujranyitva: '+state.status+'. Ez nem DRAFT szerkesztes. '+
+   'Igazolt naplok: '+state.verifiedTaskCount+'.';
+  showAccount(account);
+  return handoff;
+ }
  if(request.action==='planning-inspect'){
   const selected=singleSyncSelected,store=singleSyncStore;
   if(projectBoard.value.trim()!=='5107075373'||!singleBridge.active||
