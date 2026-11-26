@@ -6,6 +6,7 @@ import {createSessionDraftAutosave} from './draft-session-autosave.js';
 import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
 import {verifiedVersionedSelection} from './versioned-session-selection.js';
 import {requestPlanningStartConsent} from './planning-start-consent.js';
+import {runPlanningStartFlow} from './planning-start-flow.js';
 import {requestVersionedApprovalConsent} from './versioned-approval-consent-ui.js';
 import {requestVersionedSyncConsent} from './versioned-sync-consent-ui.js';
 import {createImmutableDraftQueue} from './single-draft-write-queue.js';
@@ -572,35 +573,54 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
     state.predecessorCompletionSha256!==payload.expectedPredecessorSha256||
     state.verifiedVersionCount!==state.planVersion-1)
    throw Error('Nem teljes vagy megvaltozott a V2 utani projektallapot.');
-  approvedV1SyncOutput.textContent='V3.0 inditas: varakozas az Uploader kulon jovahagyasara. A jovahagyasi gomb a 4. szakaszban jelenik meg. Monday-iras: 0.';
   if(!planningStartConsentHost)
    throw Error('A V3 Uploader-jovahagyas felulete nem erheto el. Tervinditas tiltva.');
-  let accepted=false;
+  const phaseMessage={
+   WAITING_FOR_UPLOADER_CONFIRMATION:'V3.0: kulon Uploader-jovahagyas szukseges a 4. szakaszban. SharePoint-iras meg nem indult.',
+   UPLOADER_CONFIRMED:'V3.0: mindket jovahagyas megerositve. Uj tervinditasi ellenorzes kovetkezik.',
+   CREATING_OR_VERIFYING_SHAREPOINT:'V3.0: SharePoint V3 mappak es munkamenetfajlok letrehozasa / ellenorzese folyamatban. Az Uploader es Monday ablakot tartsd nyitva.',
+   READBACK_OF_V3_RECEIPTS:'V3.0: SharePoint fajlok letrehozasi valasza megerkezett; teljes DRAFT es SHA/eTag visszaellenorzes.',
+   ACTIVATING_MONDAY_EDITOR:'V3.0: SharePoint DRAFT visszaellenorizve, atadas a Monday szerkesztonek.',
+   ACTIVE_V3:'ACTIVE V3.0: a DRAFT hitelesitve es a Mondaynek atadva. Monday-iras: 0.',
+   CANCELLED:'V3.0 inditas megszakitva a SharePoint letrehozasa elott.'
+  };
+  let failedStage=null;
+  let selected;
   try{
-   accepted=await requestPlanningStartConsent({
-    host:planningStartConsentHost,state,isCurrent:current});
+   selected=await runPlanningStartFlow({
+    inspected:state,isCurrent:current,
+    consent:()=>requestPlanningStartConsent({
+     host:planningStartConsentHost,state,isCurrent:current}),
+    execute:()=>store.planningActions.execute({...args,
+     mondayConfirmed:true,uploaderConfirmed:true}),
+    select:run=>verifiedVersionedSelection(run.report),
+    attach:async verified=>{
+     if(!current()||verified.planVersion!==state.planVersion)
+      throw Error('A V3 DRAFT atadas kapcsolata megvaltozott.');
+     installV2EditorQueue({append:work=>store.nextVersion.append({...work,
+      createdBy,editorId:payload.editorId})},verified);
+    },
+    onPhase:(phase,details)=>{
+     if(phase==='FAILED'){
+      failedStage=details;
+      approvedV1SyncOutput.textContent='V3.0 inditas nem igazolt. Sikertelen fazis: '+
+       details?.phase+'. '+details?.message+
+       (details?.writeMayHaveStarted?
+        '\nSharePoint-fajlok mar letrejohettek. Ne ismeteld az inditast! Friss, csak olvaso tervellenorzes szukseges.':
+        '\nEzen a ponton nem indult SharePoint-fajlletrehozas.');
+     }else approvedV1SyncOutput.textContent=phaseMessage[phase]||phase;
+    }
+   });
   }catch(error){
-   approvedV1SyncOutput.textContent='A V3.0 masodik jovahagyasa nem sikerult: '+
-    String(error?.message||error)+
-    '\nNem indult uj terv ezen a lepesen. Az aktualis SharePoint-allapotot ellenorizni kell.';
+   // The planning gate deliberately cannot automatically retry a create.
+   // Keep the failed stage visible in Uploader, and return the error to Monday.
+   if(!failedStage)approvedV1SyncOutput.textContent=
+    'A V3 inditas nem sikerult: '+String(error?.message||error).slice(0,350);
    throw error;
   }
-  if(!accepted||!current()){
-   approvedV1SyncOutput.textContent='A V3.0 masodik jovahagyasat megszakitottak vagy a kapcsolat megvaltozott. '+
-    'Uj SharePoint-iras meg nem indult.';
-   throw Error('Az Uploader tervinditast megszakitottak.');
-  }
-  const run=await store.planningActions.execute({...args,
-   mondayConfirmed:true,uploaderConfirmed:true});
-  if(!current()||run.action!=='START_NEXT'||run.planVersion!==state.planVersion)
-   throw Error('A tervinditas eredmenye nem egyezik az ellenorzott verzioval.');
-  const selected=await verifiedVersionedSelection(run.report);
-  if(!current()||selected.planVersion!==state.planVersion)
-   throw Error('A friss DRAFT-atadas kapcsolat megvaltozott.');
-  installV2EditorQueue({append:work=>store.nextVersion.append({...work,
-   createdBy,editorId:payload.editorId})},selected);
-  approvedV1SyncOutput.textContent='Aktiv '+selected.versionLabel+
-   ' DRAFT letrehozva, ellenorizve, a Monday szerkesztonek atadhato. Monday-iras: 0.';
+  approvedV1SyncOutput.textContent='ACTIVE '+selected.versionLabel+
+   ' DRAFT letrehozva es SharePoint SHA/eTag nyugtakkal visszaellenorizve. '+
+   'Atadva a Monday szerkesztonek. Monday-iras: 0.';
   return selected;
  }
  if(request.action==='planning-open'){
