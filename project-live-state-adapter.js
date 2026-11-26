@@ -9,7 +9,8 @@ const completed=(p,sessionId,sourceVersion,sourceFields,completionSha256)=>({
  planVersion:p,status:'SYNC_COMPLETED',verified:true,sessionId,sourceVersion,
  ...sourceFields,completionSha256,fullBoardReadbackVerified:true,remainingTaskCount:0});
 export function projectVerifiedCycleState({boardId,approvedV0,oldV1Claim,
- v1Report,v1State,v2Report,v2State,v3Report,folderCatalog,boardFingerprint}={}){
+ v1Report,v1State,v2Report,v2State,v3Report,v3SyncState,folderCatalog,
+ boardFingerprint,boardFingerprintSha256}={}){
  ok(boardId==='5107075373'&&hex(approvedV0?.sha256)&&
   folderCatalog?.complete===true&&Array.isArray(folderCatalog.versions)&&
   folderCatalog.versions.includes(1)&&folderCatalog.versions.includes(2),
@@ -51,6 +52,36 @@ export function projectVerifiedCycleState({boardId,approvedV0,oldV1Claim,
    planVersion:2,reason:'V2 approval/sync is not complete.',readOnly:true,mondayWrites:0});
  }
  const versions=[a1,a2];
+ // No unrecognized higher version can be silently ignored.
+ ok(folderCatalog.versions.every(v=>v>=1&&v<=3),
+  'A higher plan version lacks a verified inspector.');
+ // A verified approval/sync source must use the dedicated read-only inspector,
+ // never the DRAFT writer or a folder-name inference.
+ if(v3SyncState){
+  const s=v3SyncState,m3=s.model;
+  ok(folderCatalog.versions.includes(3)&&a2.status==='SYNC_COMPLETED'&&
+     m3?.boardId===boardId&&m3.version===3&&uuid(m3.sessionId)&&
+     m3.source?.completionSha256===a2.completionSha256&&
+     hex(m3.sourceDraftSha256)&&Number.isSafeInteger(m3.revision)&&m3.revision>=0&&
+     hex(s.approvedSha256)&&hex(s.approvalReceiptSha256)&&
+     hex(s.expectedBoardSha256)&&hex(boardFingerprintSha256)&&
+     ['READY_TO_SYNC','READY_TO_CLOSE','MANUAL_REVIEW_REQUIRED','V3_SYNC_COMPLETED'].includes(s.status)&&
+     Number.isSafeInteger(s.remainingTaskCount)&&s.remainingTaskCount>=0&&
+     (s.status!=='V3_SYNC_COMPLETED'||s.remainingTaskCount===0),
+   'A V3 Approved/szinkron bizonyiteka nem teljes.');
+  const boardMatches=boardFingerprintSha256===s.expectedBoardSha256;
+  const blocked=!boardMatches||s.status==='MANUAL_REVIEW_REQUIRED';
+  return Object.freeze({status:blocked?'BLOCKED':s.status,
+   action:blocked?'MANUAL_REVIEW':'CONTINUE_FINALIZATION',
+   approvedVerified:true,planVersion:3,revision:m3.revision,
+   verifiedVersionCount:3,boardMatches,
+   preparedFolders:[...(folderCatalog.preparedFolders||[])],
+   predecessorCompletionSha256:a2.completionSha256,
+   reason:blocked?'Az Approved V3 csak olvasasra ellenorizheto; nincs uj inditas.':
+    s.status==='V3_SYNC_COMPLETED'?'A V3 lezart; V4 csak olvasasi ellenorzese erheto el.':
+    'Az Approved V3 szinkronallapotat kell megnyitni.',
+   readOnly:true,mondayWrites:0});
+ }
  // A manifest/claim without the final DRAFT receipt is evidence of a
  // previously attempted V3 creation, not proof that a new start is safe.
  // Never allocate a second session or infer ACTIVE from a folder.
