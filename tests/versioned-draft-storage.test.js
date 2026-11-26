@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {createPlanningStartPermit} from '../planning-start-permit.js';
 import assert from 'node:assert/strict';
 import {pilotFileSha,pilotFingerprint} from '../v1-pilot-contract.js';
 import {createVersionedDraftStore} from '../versioned-draft-storage.js';
@@ -168,4 +169,21 @@ test('patch batch integrated: state-selected start -> verified V3.0 -> V3.1 -> r
  assert.equal(second.action,'RESUME_DRAFT');
  assert.equal(second.report.revision,1);
  assert.equal(x.writes.length,4);
+});
+
+test('real gate and store: two approvals before fresh board and exactly one V3.0',async()=>{
+ const x=fixture();
+ const args={...x.args(),mondayConfirmed:true,boardSnapshot:x.model.base};
+ const state={action:'START_NEXT',status:'READY_TO_START',planVersion:3,revision:null,readOnly:true,mondayWrites:0,verifiedVersionCount:2,boardMatches:true,predecessorCompletionSha256:x.model.source.completionSha256};
+ const permit=createPlanningStartPermit();
+ const proof=permit.issue({state,args,confirmed:true,isCurrent:()=>true});
+ assert.equal(x.writes.length,0);
+ const begin={...args,permitId:proof.permitId,boardVerifiedAt:new Date().toISOString()};
+ const auth=permit.consume(begin);
+ const gate=createPlanningActionGate({inspectCurrent:async()=>state,storeForVersion:async v=>{assert.equal(v,3);return x.store();}});
+ const result=await gate.execute({...begin,uploaderConfirmed:auth.uploaderConfirmed});
+ assert.equal((await verifiedVersionedSelection(result.report)).versionLabel,'V3');
+ assert.deepEqual(x.writes,['version-info.json','active-session-v3.json','draft-v3.json']);
+ assert.throws(()=>permit.consume(begin));
+ assert.equal(x.writes.length,3);
 });
