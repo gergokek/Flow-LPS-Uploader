@@ -20,8 +20,8 @@ test('read-only V3 approval source rejects missing signed predecessor, no mutati
  assert.equal(typeof src.approve,'undefined');
 });
 test('any unexpected V3 Sync entry rejects before trusting predecessor data',async()=>{
- const f=fixture(),path=layout.sync+'/sync-v3-step-000001-ahead.json';
- f.files.set(path,{name:'sync-v3-step-000001-ahead.json',id:'id1',eTag:'etag1'});
+ const f=fixture(),path=layout.sync+'/foreign.json';
+ f.files.set(path,{name:'foreign.json',id:'id1',eTag:'etag1'});
  await assert.rejects(f.open().inspect({editorId:'96423073',createdBy:'test-account'}),
   /Nem vart V3 fajl/);
  assert.equal(f.reads.length,0);
