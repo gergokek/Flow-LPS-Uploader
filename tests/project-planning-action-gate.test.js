@@ -73,3 +73,12 @@ test('verified incomplete cycle can only use recover, never begin()',async()=>{
  assert.equal(r.action,'RECOVER_SAME_SESSION');assert.equal(recovered,1);
  assert.equal(begins,0);
 });
+
+test('Approved V0-only project starts V1 with no existing version count',async()=>{
+ let selected;
+ const gate=createPlanningActionGate({inspectCurrent:async()=>({...base,
+  planVersion:1,verifiedVersionCount:0}),
+  storeForVersion:async version=>{selected=version;return executor(version)}});
+ const result=await gate.execute(options);
+ assert.equal(selected,1);assert.equal(result.planVersion,1);
+});
