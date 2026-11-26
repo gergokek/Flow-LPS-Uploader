@@ -1,0 +1,100 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {pilotFileSha,pilotFingerprint} from '../v1-pilot-contract.js';
+import {createVersionedDraftStore} from '../versioned-draft-storage.js';
+const boardId='5107075373',identity={editorId:'96423073',createdBy:'test-home.account'};
+const uuid='44444444-4444-4444-8444-444444444444';
+function data(){
+ const t={id:'101',name:'Sample',week:'',status:'Not started',note:'',
+  owner:'',ownerIds:[],group:'',groupId:'',issues:[],planned:null,accepted:null,
+  forecast:null,actual:null,readiness:'',duration:1,ffLag:0,startPre:[],finishPre:[],
+  critical:'',endWeek:'',anchor:null,obstacles:[],ledger:[]};
+ const base={id:boardId,workspaceId:'7145773',columns:[],groups:[],tasks:[t]};
+ const m={version:3,boardId,base,source:{planVersion:2,
+  sessionId:'11111111-1111-4111-8111-111111111111',revision:1,
+  approvedSha256:'a'.repeat(64),completionSha256:'b'.repeat(64),
+  completionBoardSha256:'c'.repeat(64),sourceClaimSha256:'d'.repeat(64)},
+  fingerprint:pilotFingerprint(base),editorId:identity.editorId,
+  createdBy:identity.createdBy,taskCount:1,completedAt:'2026-11-25T00:00:00Z'};
+ return m;
+}
+function fixture({failAt='',boardChanged=false}={}){
+ const files=new Map(),writes=[],model=data();let folders=0,boardReads=0;
+ const deps={
+  version:3,inspectSource:async()=>({status:'V2_SYNC_COMPLETED'}),
+  sourceVerifier:async()=>structuredClone(model),
+  read:async path=>structuredClone(files.get(path)||null),
+  list:async dir=>[...files.entries()].filter(([key])=>key.startsWith(dir+'/')&&
+   !key.slice(dir.length+1).includes('/')).map(([,file])=>({id:file.id,name:file.name,eTag:file.eTag})),
+  create:async(path,doc)=>{
+   assert.ok(path.startsWith('Projects/5107075373/Versions/V0003/'));
+   assert.equal(files.has(path),false,'Cannot overwrite stored file');
+   const receipt={path,name:path.split('/').at(-1),id:'file-'+(files.size+1),
+    eTag:'etag-'+(files.size+1),sha256:await pilotFileSha(doc),
+    verification:'content-sha256-and-etag'};
+   files.set(path,{value:structuredClone(doc),...receipt});
+   writes.push(receipt.name);
+   if(receipt.name===failAt)throw Error('Simulated lost SharePoint response');
+   return receipt;
+  },
+  ensureFolders:async()=>{folders++;},
+  readBoard:async()=>{boardReads++;return structuredClone(boardChanged?
+   {...model.base,tasks:[{...model.base.tasks[0],status:'Candidate'}]}:model.base);},
+  randomUUID:()=>uuid
+ };
+ const args=()=>({...identity,executionId:'55555555-5555-4555-8555-555555555555',
+  expectedPredecessorSha256:model.source.completionSha256,
+  boardFingerprint:model.fingerprint,boardVerifiedAt:new Date().toISOString(),
+  userConfirmed:true});
+ const store=()=>createVersionedDraftStore(deps);
+ return {files,writes,model,store,args,folderCount:()=>folders,boardReads:()=>boardReads};
+}
+test('verified V3 begin creates exactly manifest, claim, baseline; repeat is read-only',async()=>{
+ const x=fixture();const s=x.store();const initial=await s.inspect(identity);
+ assert.equal(initial.status,'READY_TO_START');
+ const result=await s.begin(x.args());
+ assert.equal(result.status,'ACTIVE');assert.equal(result.revision,0);
+ assert.deepEqual(x.writes,['version-info.json','active-session-v3.json','draft-v3.json']);
+ assert.ok(x.boardReads()>=2);
+ const restarted=await x.store().begin(x.args());
+ assert.equal(restarted.status,'ACTIVE');
+ assert.equal(restarted.claim.document.sessionId,uuid);
+ assert.equal(x.writes.length,3,'Verified existing session is never duplicated');
+});
+test('lost claim-create response recovers the same session id and no duplicate files',async()=>{
+ const x=fixture({failAt:'active-session-v3.json'});
+ await assert.rejects(x.store().begin(x.args()),/Simulated/);
+ assert.equal(x.writes.length,2);
+ const r=await x.store().begin(x.args());
+ assert.equal(r.status,'ACTIVE');assert.equal(r.claim.document.sessionId,uuid);
+ assert.deepEqual(x.writes,['version-info.json','active-session-v3.json','draft-v3.json']);
+});
+test('baseline loss recovers without a new session or baseline overwrite',async()=>{
+ const x=fixture({failAt:'draft-v3.json'});
+ await assert.rejects(x.store().begin(x.args()));
+ const r=await x.store().begin(x.args());
+ assert.equal(r.status,'ACTIVE');
+ assert.equal(x.writes.length,3);
+});
+test('revised V3 draft stored in same version folder, with strict parent SHA',async()=>{
+ const x=fixture(),s=x.store(),init=await s.begin(x.args());
+ const d=structuredClone(init.baseline.document);
+ d.version=1;d.history=[{revision:1,type:'edit',at:new Date().toISOString()}];
+ d.working[0].note='V3 first edit';
+ const saved=await s.append({...identity,updatedDraft:d,expectedSessionId:uuid,
+  expectedParentSha256:init.baseline.receipt.sha256});
+ assert.equal(saved.versionLabel,'V3.1');
+ assert.equal(saved.receipt.path,'Projects/5107075373/Versions/V0003/Drafts/draft-v3-r000001.json');
+ assert.equal(x.writes.length,4);
+ await assert.rejects(x.store().append({...identity,updatedDraft:d,expectedSessionId:uuid,
+  expectedParentSha256:init.baseline.receipt.sha256}));
+ const latest=await x.store().inspect(identity);
+ assert.equal(latest.status,'ACTIVE');assert.equal(latest.revision,1);
+});
+test('board drift or missing authorization writes absolutely no new session files',async()=>{
+ const bad=fixture({boardChanged:true});
+ await assert.rejects(bad.store().begin(bad.args()),/board elter/);
+ assert.equal(bad.writes.length,0);assert.equal(bad.folderCount(),0);
+ const x=fixture();await assert.rejects(x.store().begin({...x.args(),userConfirmed:false}));
+ assert.equal(x.writes.length,0);
+});
