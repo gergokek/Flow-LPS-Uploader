@@ -12,7 +12,7 @@ export function versionFolder(v){
  requireVersion(v);return 'V'+String(v).padStart(4,'0');
 }
 export function versionLayout(boardId,version){
- if(typeof boardId!=='string'||!/^\\d{5,20}$/.test(boardId))
+ if(typeof boardId!=='string'||!/^\d{5,20}$/.test(boardId))
   throw Error('Invalid Monday board ID.');
  requireVersion(version);
  const root='Projects/'+boardId;
@@ -31,7 +31,7 @@ export function versionLayout(boardId,version){
 export function versionFilePath({boardId,version,kind,name}){
  const l=versionLayout(boardId,version);
  if(!['session','drafts','approved','sync'].includes(kind))throw Error('Invalid file class.');
- if(typeof name!=='string'||!/^[-a-zA-Z0-9_.]{1,120}\\.json$/.test(name)||
+ if(typeof name!=='string'||!/^[-a-zA-Z0-9_.]{1,120}\.json$/.test(name)||
   name==='.'||name==='..'||name.includes('..'))
   throw Error('Invalid SharePoint filename.');
  return l[kind]+'/'+name;
