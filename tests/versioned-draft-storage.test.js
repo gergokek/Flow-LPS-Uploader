@@ -117,3 +117,19 @@ test('a frozen V3 session never reports itself as a resumable ACTIVE draft',asyn
   expectedParentSha256:opened.baseline.receipt.sha256,
   updatedDraft:opened.baseline.document}),/zarolt/);
 });
+
+test('unverified Approved or Sync artifact blocks a supposedly editable V3 DRAFT',async()=>{
+ for(const folder of ['Approved','Sync']){
+  const x=fixture();const opened=await x.store().begin(x.args());
+  const path='Projects/5107075373/Versions/V0003/'+folder+'/foreign.json';
+  x.files.set(path,{id:'unexpected-'+folder,eTag:'etag-'+folder,
+   name:'foreign.json',value:{status:'UNVERIFIED'},sha256:'f'.repeat(64)});
+  await assert.rejects(x.store().inspect(identity),/Approved\/Sync/);
+  const next=structuredClone(opened.baseline.document);
+  next.version=1;next.history=[{revision:1,type:'edit',at:new Date().toISOString()}];
+  next.working[0].note='edit';
+  await assert.rejects(x.store().append({...identity,
+   expectedSessionId:opened.claim.document.sessionId,
+   expectedParentSha256:opened.baseline.receipt.sha256,updatedDraft:next}),/Approved\/Sync/);
+ }
+});
