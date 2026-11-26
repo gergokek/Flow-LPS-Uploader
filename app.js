@@ -7,6 +7,7 @@ import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
 import {verifiedVersionedSelection} from './versioned-session-selection.js';
 import {requestPlanningStartConsent} from './planning-start-consent.js';
 import {requestVersionedApprovalConsent} from './versioned-approval-consent-ui.js';
+import {requestVersionedSyncConsent} from './versioned-sync-consent-ui.js';
 import {createImmutableDraftQueue} from './single-draft-write-queue.js';
 import {attachSingleDraftSessionBridge} from './single-draft-session-bridge.js';
 import {attachDraftHandoff} from './draft-handoff-receiver.js';
@@ -429,6 +430,70 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   'Allapot: '+done.state.status+'. Monday-iras: 0. '+ 
   'A V3 szinkronmotor meg nem aktiv.';
  return summarize(done);
+},onVersionedSync:async request=>{
+ const account=msal.getAllAccounts()[0],store=singleSyncStore,
+  selected=singleSession,opener=window.opener;
+ const createdBy=account?.homeAccountId;
+ const current=()=>testUi===true&&!!account&&!!store?.v3Sync&&
+  store===singleSyncStore&&selected===singleSession&&
+  selected?.planVersion===3&&selected.status==='APPROVED_V3'&&
+  selected.sessionId===request.expectedSessionId&&
+  selected.revision===request.expectedRevision&&
+  selected.receipt?.sha256===request.expectedDraftSha256&&
+  projectBoard.value.trim()==='5107075373'&&
+  singleBridge.active&&singleBridge.ready()&&opener&&!opener.closed&&
+  opener===window.opener&&
+  singleBridge.v3Approved()?.approvedSha256===request.expectedApprovedSha256&&
+  singleBridge.v3Approved()?.approvalReceiptSha256===request.expectedApprovalReceiptSha256&&
+  msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+  msal.getAllAccounts()[0]?.tenantId===account.tenantId;
+ if(!current()||!/^\d+$/.test(request.editorId||''))
+  throw Error('A V3 szinkronkapcsolat vagy az Approved Plan megvaltozott.');
+ const args={...request.payload,editorId:request.editorId,createdBy};
+ const flow=store.v3Sync;
+ if(request.action==='inspect'){
+  const r=await flow.inspect(args);
+  if(!current()||r.state.model.sessionId!==selected.sessionId||
+     r.state.approvedSha256!==request.expectedApprovedSha256)
+   throw Error('A V3 naplok nem a kapcsolt Approved Planhez tartoznak.');
+  approvedV1SyncOutput.textContent='V3 szinkron naplok: '+r.state.status+
+   '; igazolt: '+r.state.verifiedTaskCount+
+   '; hatralevo: '+r.state.remainingTaskCount+'.';
+  return r;
+ }
+ if(request.action==='begin'){
+  const report=await flow.inspect(args),state=report.state;
+  if(!current()||!['READY_TO_SYNC','READY_TO_CLOSE'].includes(state.status)||
+     state.approvedSha256!==request.expectedApprovedSha256||
+     state.approvalReceiptSha256!==request.expectedApprovalReceiptSha256||
+     args.mondayConfirmed!==true||
+     args.expectedGenerationSha256!==state.generationSha256)
+   throw Error('Nem igazolt a V3 szinkron eloallitott engedelye.');
+  approvedV1SyncOutput.textContent='V3 teljes TEST visszairas Uploader-jovahagyasra var.';
+  const accepted=await requestVersionedSyncConsent({
+   host:approvedV1SyncOutput.parentElement,state,isCurrent:current});
+  if(!accepted||!current())
+   throw Error('V3 szinkron leallitva az Uploader megerosites elott.');
+  return flow.begin({...args,mondayConfirmed:true,
+   uploaderConfirmed:true,userConfirmed:true});
+ }
+ if(request.action==='v4-ready'){
+  const ready=await flow.readiness(args);
+  if(!current()||ready.status!=='V4_READY_TO_START'||ready.startEnabled!==false)
+   throw Error('A V4 elozmeny nem hiteles.');
+  approvedV1SyncOutput.textContent='V3 teljes szinkron igazolt. V4 forras: kesz. '+
+   'Uj terv inditasa meg kulon fejlesztes.';
+  return ready;
+ }
+ if(!['ahead','result','finish'].includes(request.action))
+  throw Error('Ismeretlen V3 szinkronmuvelet.');
+ const r=await flow[request.action](args);
+ if(!current())throw Error('Megszakadt V3 szinkronkapcsolat.');
+ approvedV1SyncOutput.textContent=request.action==='ahead'?
+  'V3 elonaplo igazolt: '+r.document.taskId+'. Egy irasi kiserlet engedelyezett.':
+  request.action==='result'?'V3 visszaolvasas naplo: '+r.document.status+'.':
+  'V3 TELJES SZINKRON LEZARVA. SHA-256: '+r.receipt.sha256+'.';
+ return r;
 },onPilotRequest:async request=>{
  const account=msal.getAllAccounts()[0];
  if(!account||!singleSyncStore||!singleSyncSelected||
