@@ -8,6 +8,7 @@ import {createVersionedDraftStore} from './versioned-draft-storage.js';
 import {createVersionedGraphFiles} from './versioned-graph-files.js';
 import {createVersionedApprovalSource} from './versioned-approval-source.js';
 import {createVersionedApprovalStore} from './versioned-approval-storage.js';
+import {createVersionedSyncStore} from './versioned-sync-storage.js';
 import {createV2SessionStore} from './v2-session-storage.js';
 import {createV1FullSyncStore} from './single-v1-full-sync-storage.js';
 import {createV1PilotStore} from './single-v1-pilot-storage.js';
@@ -580,6 +581,29 @@ export function createSingleDraftSessionStore({boardId,driveId,
    }
   }
  });
+ const v3Sync=createVersionedSyncStore({
+  inspectModel:args=>v3ApprovalSource.inspect(args),
+  read:v3Graph.read,list:v3Graph.list,create:v3Graph.create,
+  readBoard:async args=>args.boardSnapshot,
+  now,check,
+  checkPinned:async(args,model)=>{
+   check();
+   requireValid(args?.createdBy===model.createdBy&&args?.editorId===model.editorId,
+    'V3 szinkron: a szerkeszto vagy Microsoft-fiok megvaltozott.');
+   const report=await v2Flow.inspect(args);check();
+   requireValid(report?.approved?.receipt?.sha256===model.source.approvedSha256&&
+    report?.final?.receipt?.sha256===model.source.completionSha256,
+    'A V3 forras V2 vegnyugtaja megvaltozott.');
+   for(const [folder,name,hash] of [
+    [model.names.layout.session,'version-info.json',model.manifestSha256],
+    [model.names.layout.session,'active-session-v3.json',model.claimSha256],
+    [model.names.layout.drafts,model.draftReceipt.name,model.sourceDraftSha256]]){
+    const f=await v3Graph.read(folder+'/'+name);check();
+    requireValid(f?.sha256===hash&&f.id&&f.eTag,
+     'A V3 jo vahagyott DRAFT forrasa megvaltozott.');
+   }
+  }
+ });
  // Read-only CURRENT PROJECT discovery. No version is allocated here.
  const versionFolders=createVersionFolderCatalog({boardId,driveId,getAccessToken,fetcher,
   assertCurrent:()=>{check();return true;}});
@@ -619,5 +643,5 @@ export function createSingleDraftSessionStore({boardId,driveId,
   inspectApprovedSync,prepareApprovedSync,
   inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
   saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow,nextVersion,
-  v3Approval,inspectPlanningState,planningActions});
+  v3Approval,v3Sync,inspectPlanningState,planningActions});
 }
