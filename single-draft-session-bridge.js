@@ -37,7 +37,7 @@ export function attachSingleDraftSessionBridge({win=window,
   if(event.data.kind==='v1-pilot-request'&&approvedForSyncState&&(!selectedSession||(selectedSession.planVersion===2&&event.data.action?.startsWith('v2-flow-')))){
    const x=event.data;
    if(!uuid(x.requestId)||pilotSeen.has(x.requestId)||
-      !['inspect','ahead','result','full-inspect','full-begin','full-reconcile','full-ahead','full-result','full-finish','v2-inspect','v2-begin','v2-open','v2-flow-inspect','v2-flow-begin','v2-flow-approve','v2-flow-ahead','v2-flow-result','v2-flow-finish','planning-inspect'].includes(x.action)||
+      !['inspect','ahead','result','full-inspect','full-begin','full-reconcile','full-ahead','full-result','full-finish','v2-inspect','v2-begin','v2-open','v2-flow-inspect','v2-flow-begin','v2-flow-approve','v2-flow-ahead','v2-flow-result','v2-flow-finish','planning-inspect','planning-open'].includes(x.action)||
       x.expectedApprovedSha256!==approvedForSyncState.sha256||
       x.expectedSessionId!==approvedForSyncState.sessionId||
       x.expectedRevision!==approvedForSyncState.revision)return;
@@ -51,6 +51,18 @@ export function attachSingleDraftSessionBridge({win=window,
      requestId:x.requestId,expectedApprovedSha256:x.expectedApprovedSha256,
      expectedSessionId:x.expectedSessionId,expectedRevision:x.expectedRevision});
     if(x.action==='v2-flow-approve')approved=true;
+    if(x.action==='planning-open'){
+     const selected=result;
+     if(selected?.status!=='ACTIVE'||selected.planVersion!==3||
+       !uuid(selected.sessionId)||selected.draft?.session?.planVersion!==3||
+       selected.draft.session.sessionId!==selected.sessionId||
+       selected.draft.version!==selected.revision||
+       !/^[a-f0-9]{64}$/.test(selected.receipt?.sha256||'')||
+       selected.mondayWrites!==0)
+      throw Error('A kivalsztott V3 munkamenet nem igazolt.');
+     selectedSession={sessionId:selected.sessionId,planVersion:3,
+      revision:selected.revision,sha256:selected.receipt.sha256};
+    }
     if(x.action==='v2-open'){
      const latest=result.revisions?.at(-1)||result.baseline;
      if(result.status!=='V2_ACTIVE'||!uuid(result.claim?.document?.sessionId)||
