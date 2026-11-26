@@ -201,7 +201,7 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
    const after=await scan(model);
    ok(after.revision===doc.version&&after.latest.receipt.sha256===pair.receipt.sha256,
     'A V3 revizio mentese nem igazolt.');
-   return {status:'SAVED',planVersion:version,revision:doc.version,
+   return {status:'SAVED',boardId:model.boardId,planVersion:version,revision:doc.version,
     versionLabel:'V'+version+'.'+doc.version,sessionId:claim.sessionId,
     draft:doc,receipt:pair.receipt,mondayWrites:0};
   }catch(error){blocked=true;throw error;}
