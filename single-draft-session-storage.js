@@ -6,6 +6,8 @@ import {projectVerifiedCycleState} from './project-live-state-adapter.js';
 import {createPlanningActionGate} from './project-planning-action-gate.js';
 import {createVersionedDraftStore} from './versioned-draft-storage.js';
 import {createVersionedGraphFiles} from './versioned-graph-files.js';
+import {createVersionedApprovalSource} from './versioned-approval-source.js';
+import {createVersionedApprovalStore} from './versioned-approval-storage.js';
 import {createV2SessionStore} from './v2-session-storage.js';
 import {createV1FullSyncStore} from './single-v1-full-sync-storage.js';
 import {createV1PilotStore} from './single-v1-pilot-storage.js';
@@ -547,6 +549,37 @@ export function createSingleDraftSessionStore({boardId,driveId,
     'A V2 kiindulo bizonyitek megvaltozott.');
    check();
   }});
+ // Independent, create-only V3 finalization: never uses the DRAFT-writer scan.
+ // Full V2 predecessor and every V3 revision are revalidated per operation.
+ const v3ApprovalSource=createVersionedApprovalSource({
+  inspectV2:args=>v2Flow.inspect(args),
+  read:v3Graph.read,list:v3Graph.list,now,check
+ });
+ const v3Approval=createVersionedApprovalStore({
+  inspectModel:args=>v3ApprovalSource.inspect(args),
+  read:v3Graph.read,list:v3Graph.list,create:v3Graph.create,
+  readBoard:async args=>args.boardSnapshot,
+  now,check,
+  checkPinned:async(args,model)=>{
+   check();
+   requireValid(args?.createdBy===model.createdBy&&args?.editorId===model.editorId,
+    'V3 jovahagyas fiokja megvaltozott.');
+   const report=await v2Flow.inspect(args);check();
+   requireValid(report?.approved?.receipt?.sha256===model.source.approvedSha256&&
+    report?.final?.receipt?.sha256===model.source.completionSha256,
+    'V3 elozo ciklus lezaro nyugtaja megvaltozott.');
+   const metaPaths=[
+    [model.names.layout.session,'version-info.json',model.manifestSha256],
+    [model.names.layout.session,'active-session-v3.json',model.claimSha256],
+    [model.names.layout.drafts,model.draftReceipt.name,model.sourceDraftSha256]
+   ];
+   for(const [folder,name,hash] of metaPaths){
+    const doc=await v3Graph.read(folder+'/'+name);check();
+    requireValid(doc?.sha256===hash&&doc.id&&doc.eTag,
+     'V3 forrasfajl SharePoint-ellenorzese megvaltozott.');
+   }
+  }
+ });
  // Read-only CURRENT PROJECT discovery. No version is allocated here.
  const versionFolders=createVersionFolderCatalog({boardId,driveId,getAccessToken,fetcher,
   assertCurrent:()=>{check();return true;}});
@@ -585,5 +618,6 @@ export function createSingleDraftSessionStore({boardId,driveId,
  return Object.freeze({start,resume,append,readV0,reviewApproval,approve,
   inspectApprovedSync,prepareApprovedSync,
   inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
-  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow,nextVersion,inspectPlanningState,planningActions});
+  saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow,nextVersion,
+  v3Approval,inspectPlanningState,planningActions});
 }
