@@ -527,7 +527,9 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
    receipt:m.draftReceipt,approvedSha256:state.approvedSha256,
    approvalReceiptSha256:state.approvalReceiptSha256,
    syncStatus:state.status,verifiedTaskCount:state.verifiedTaskCount,
-   remainingTaskCount:state.remainingTaskCount,mondayWrites:0};
+   remainingTaskCount:state.remainingTaskCount,
+   expectedBoardSha256:state.expectedBoardSha256,
+   createdBy:m.createdBy,mondayWrites:0};
   if(!isCurrent())throw Error('Az Approved V3 ujranyitasa kozben fiokvaltas tortent.');
   singleSession={...handoff,receipt:handoff.receipt};
   approvedV1SyncOutput.textContent='Jovahagyott V3.'+m.revision+
