@@ -25,6 +25,8 @@ import {mountSingleTaskJournalControl} from './pilot-journal-ui.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import {createProjectStorage} from './project-storage.js';
 import {versionLayout} from './version-workspace-layout.js';
+import {createVersionedGraphFiles} from './versioned-graph-files.js';
+import {summarizeVersionedApprovalInventory,versionedApprovalInventoryMessage} from './versioned-approval-status-ui.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
 import {saveDraftTransfer} from './draft-save.js';
 import {verifyDownloadedDraft} from './draft-content-verifier.js';
@@ -45,6 +47,8 @@ const projectSetup=document.querySelector('#setupProject');
 const projectResult=document.querySelector('#projectResult');
 const versionFoldersButton=document.querySelector('#setupVersionFolders');
 const versionFoldersResult=document.querySelector('#versionFoldersResult');
+const v3InventoryButton=document.querySelector('#inspectV3ApprovalInventory');
+const v3InventoryOutput=document.querySelector('#v3ApprovalInventoryResult');
 const createSingleDraft=document.querySelector('#startSingleDraft');
 const resumeSingleDraft=document.querySelector('#resumeSingleDraft');
 const singleDraftOutput=document.querySelector('#singleDraftResult');
@@ -65,6 +69,7 @@ function showAccount(account){
  document.querySelector('#listStoredSyncCheckpoints').disabled=!account||projectBoard.value.trim()!=='5107075373';
  projectSetup.disabled=!account;
  versionFoldersButton.disabled=!account||projectBoard.value.trim()!=='5107075373';
+ v3InventoryButton.disabled=!account||projectBoard.value.trim()!=='5107075373'||!testUi;
  // The TEST session may only be started from the authenticated Monday opener.
  const connected=!!singleBridge?.active&&singleBridge.ready();
  createSingleDraft.disabled=!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
@@ -271,6 +276,38 @@ const pickerMeToken=async()=>{
   return (await msal.acquireTokenPopup(request)).accessToken;
  }
 };
+// V3 version inventory – read-only, not an approval or sync authorization.
+let v3InventoryBusy=false;
+v3InventoryButton.addEventListener('click',async()=>{
+ if(v3InventoryBusy||!testUi)return;
+ const current=msal.getAllAccounts()[0],boardId=projectBoard.value.trim();
+ if(boardId!=='5107075373'||!current){
+  v3InventoryOutput.textContent='Microsoft-fiok es TEST board szukseges.';return;
+ }
+ const accountId=current.homeAccountId,tenant=current.tenantId;
+ const assertCurrent=()=>projectBoard.value.trim()===boardId&&
+  msal.getAllAccounts()[0]?.homeAccountId===accountId&&
+  msal.getAllAccounts()[0]?.tenantId===tenant;
+ v3InventoryBusy=true;v3InventoryButton.disabled=true;
+ v3InventoryOutput.textContent='V3 SharePoint fajllistak ujraolvasasa (csak olvasas)...';
+ try{
+  const graph=createVersionedGraphFiles({boardId,version:3,driveId,
+   getAccessToken:pickerToken,assertCurrent});
+  const layout=versionLayout(boardId,3);
+  const [sessionFiles,draftFiles,approvedFiles,syncFiles]=await Promise.all([
+   graph.list(layout.session),graph.list(layout.drafts),
+   graph.list(layout.approved),graph.list(layout.sync)]);
+  if(!assertCurrent())throw Error('Microsoft-fiok megvaltozott.');
+  const result=summarizeVersionedApprovalInventory({boardId,planVersion:3,
+   sessionFiles,draftFiles,approvedFiles,syncFiles});
+  v3InventoryOutput.textContent=versionedApprovalInventoryMessage(result);
+ }catch(error){
+  v3InventoryOutput.textContent='V3 ellenorzes nem teljes: '+String(error?.message||error)+
+   '\nNincs igazolt jovahagyas vagy szinkron; nincs ujraprobalasbol eredő iras.';
+ }finally{
+  v3InventoryBusy=false;showAccount(msal.getAllAccounts()[0]||null);
+ }
+});
 // New, isolated one-session workflow. No legacy autosave coalescing and no
 // direct Monday writes. Existing legacy tests remain available separately.
 let singleSession=null,singleSessionQueue=null,singleStore=null,singleBusy=false;
