@@ -102,7 +102,17 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
   guard();return [...result.values()];
  }
  async function create(path,document){
-  checkedPath(path);guard();
+  const target=checkedPath(path);guard();
+  ok(document&&typeof document==='object'&&!Array.isArray(document)&&
+   document.schemaVersion===1&&document.boardId===boardId,
+   'V3 fajl nem ervenyes dokumentum.');
+  const valid=(target.name==='version-info.json'&&
+    document.format==='mflow-plan-version-index'&&document.planVersion===3)||
+   (target.name==='active-session-v3.json'&&document.format==='mflow-versioned-session'&&
+    document.planVersion===3)||
+   (/^draft-v3(?:-r[0-9]{6})?\\.json$/.test(target.name)&&
+    document.format==='flow-lps-draft'&&document.session?.planVersion===3);
+  ok(valid,'Nem illeszkedik a V3 fajlnev es a dokumentumtipus.');
   const bytes=new TextEncoder().encode(JSON.stringify(document,null,2)+'\n');
   ok(bytes.byteLength>0&&bytes.byteLength<=MAX_DRAFT_BYTES,
    'A V3 JSON meghaladja a biztonsagi meretkorlatot.');
