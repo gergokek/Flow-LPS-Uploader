@@ -229,3 +229,32 @@ test('planning-open is origin/pin protected and binds V3 to its save-revision qu
  assert.equal(a.calls(),0);
  a.bridge.close();
 });
+
+test('planning-begin is a single origin-bound operation and binds the verified new V3 session',async()=>{
+ const session='55555555-5555-4555-8555-555555555555';
+ let invoked=0;
+ const a=ready(async request=>{
+  invoked++;assert.equal(request.action,'planning-begin');
+  return {status:'ACTIVE',planVersion:3,sessionId:session,revision:0,
+   draft:{boardId,version:0,session:{sessionId:session,planVersion:3}},
+   receipt:{sha256:'e'.repeat(64),eTag:'v3'},mondayWrites:0};
+ });
+ a.emit('hello');
+ const hash='b'.repeat(64),source='d'.repeat(64);
+ a.bridge.approvedForSync({status:'APPROVED_V1_VERIFIED',
+  boardId,sessionId,planVersion:1,revision:4,
+  receipt:{name:'approved-v1.json',sha256:hash,eTag:'etag',
+   verification:'content-sha256-and-etag'},sourceDraftSha256:source,
+  approvedPlan:{sourceDraft:{sha256:source}},mondayWrites:0,mondaySyncAllowed:false});
+ const req={action:'planning-begin',requestId:'44444444-4444-4444-8444-444444444444',
+  expectedApprovedSha256:hash,expectedSessionId:sessionId,expectedRevision:4,
+  payload:{editorId:'96423073',mondayConfirmed:true}};
+ await a.emit('v1-pilot-request',req,'https://untrusted.example');
+ assert.equal(invoked,0);
+ await a.emit('v1-pilot-request',req);
+ assert.equal(invoked,1);assert.equal(a.bridge.session()?.planVersion,3);
+ assert.equal(a.bridge.session()?.sessionId,session);
+ await a.emit('v1-pilot-request',req);
+ assert.equal(invoked,1);
+ a.bridge.close();
+});
