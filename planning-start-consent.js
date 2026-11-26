@@ -36,7 +36,7 @@ export function requestPlanningStartConsent({host,state,isCurrent,
    throw Error('A tervinditasi jovahagyas lejart vagy a kapcsolat megvaltozott.');};
   const onClose=()=>finish(false,Error('Az Uploader kapcsolat megszakadt.'));
   ok.addEventListener('click',()=>{try{check();finish(true);}catch(e){finish(false,e);}});
-  cancel.addEventListener('click',()=>finish(false);
+  cancel.addEventListener('click',()=>finish(false));
   try{check();host.append(panel);win.addEventListener('pagehide',onClose);
    timer=win.setInterval(()=>{try{check();}catch(e){finish(false,e);}},500);
    try{panel.scrollIntoView({block:'center'});title.focus({preventScroll:true});}catch{}
