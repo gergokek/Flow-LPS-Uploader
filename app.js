@@ -6,6 +6,7 @@ import {createSessionDraftAutosave} from './draft-session-autosave.js';
 import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
 import {verifiedVersionedSelection} from './versioned-session-selection.js';
 import {requestPlanningStartConsent} from './planning-start-consent.js';
+import {requestVersionedApprovalConsent} from './versioned-approval-consent-ui.js';
 import {createImmutableDraftQueue} from './single-draft-write-queue.js';
 import {attachSingleDraftSessionBridge} from './single-draft-session-bridge.js';
 import {attachDraftHandoff} from './draft-handoff-receiver.js';
@@ -364,6 +365,70 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   'SHA-256: '+result.checkpoint.sha256+'\n'+
   'Monday-board módosítás: 0. A következő írás külön megerősítést igényel.';
  return result;
+},onVersionedApproval:async request=>{
+ const account=msal.getAllAccounts()[0],createdBy=account?.homeAccountId;
+ const store=singleSyncStore,selected=singleSession,
+  queue=singleSessionQueue,opener=window.opener;
+ const current=()=>!!account&&!!store?.v3Approval&&
+  store===singleSyncStore&&queue===singleSessionQueue&&
+  selected===singleSession&&selected?.planVersion===3&&
+  selected.sessionId===request.expectedSessionId&&
+  selected.revision===request.expectedRevision&&
+  selected.receipt?.sha256===request.expectedDraftSha256&&
+  queue?.state().canApprove===true&&
+  projectBoard.value.trim()==='5107075373'&&
+  msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+  msal.getAllAccounts()[0]?.tenantId===account.tenantId&&
+  singleBridge.active&&singleBridge.ready()&&opener&&!opener.closed&&
+  window.opener===opener;
+ if(!current()||!/^[0-9]+$/.test(request.editorId||''))
+  throw Error('A V3 DRAFT vagy a ket alkalmazas kapcsolata megvaltozott.');
+ const args={...request,editorId:request.editorId,createdBy};
+ const report=await store.v3Approval.inspect(args);
+ if(!current()||report.sessionId!==selected.sessionId||
+    report.revision!==selected.revision||
+    report.sourceDraftSha256!==selected.receipt.sha256)
+  throw Error('V3 munkamenet megvaltozott a teljes forrasellenorzes kozben.');
+ const summarize=r=>({status:r.state.status,boardId:r.boardId,
+  planVersion:r.planVersion,sessionId:r.sessionId,revision:r.revision,
+  sourceDraftSha256:r.sourceDraftSha256,
+  generationSha256:r.generationSha256,
+  predecessorCompletionSha256:r.predecessorCompletionSha256,
+  sourceBoardSha256:r.sourceBoardSha256,
+  changedTaskCount:r.changedTaskCount,fieldChangeCount:r.fieldChangeCount,
+  taskCount:r.taskCount,readOnly:true,mondayWrites:0,mondaySyncAllowed:false,
+  approvedSha256:r.approved?.receipt?.sha256||null,
+  approvalReceiptSha256:r.approval?.receipt?.sha256||null});
+ if(request.action==='inspect'){
+  approvedV1SyncOutput.textContent='V3.'+report.revision+
+   ' DRAFT teljes SharePoint ellenorzese: '+report.changedTaskCount+
+   ' feladat, '+report.fieldChangeCount+' mezo. Monday iras: 0.';
+  return summarize(report);
+ }
+ if(request.action!=='approve'||report.state.status!=='DRAFT_READY'||
+    request.mondayConfirmed!==true||
+    request.expectedGenerationSha256!==report.generationSha256||
+    request.expectedPredecessorSha256!==report.predecessorCompletionSha256||
+    request.boardFingerprintSha256!==report.sourceBoardSha256||
+    request.boardSnapshot?.id!=='5107075373')
+  throw Error('Nincs friss, egyezo V3 jovahagyasi engedely.');
+ const summary=summarize(report);
+ const accepted=await requestVersionedApprovalConsent({
+  host:approvedV1SyncOutput.parentElement,summary,
+  isCurrent:current});
+ if(!accepted||!current())
+  throw Error('A V3 jovahagyast az Uploader nem erositette meg.');
+ const done=await store.v3Approval.approve({...args,
+  mondayConfirmed:true,uploaderConfirmed:true,userConfirmed:true});
+ if(!current()||!['READY_TO_SYNC','READY_TO_CLOSE'].includes(done.state.status)||
+    done.sourceDraftSha256!==selected.receipt.sha256)
+  throw Error('A V3 Approved Plan mentese nem igazolt.');
+ queue.stop();
+ singleSession={...selected,status:'APPROVED_V3'};
+ approvedV1SyncOutput.textContent='Approved V3 SharePoint nyugtak ellenorizve. '+
+  'Allapot: '+done.state.status+'. Monday-iras: 0. '+ 
+  'A V3 szinkronmotor meg nem aktiv.';
+ return summarize(done);
 },onPilotRequest:async request=>{
  const account=msal.getAllAccounts()[0];
  if(!account||!singleSyncStore||!singleSyncSelected||
