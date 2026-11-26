@@ -1,3 +1,4 @@
+import {versionLayout,VERSION_FOLDERS,VERSION_ROOT,versionFolder} from './version-workspace-layout.js';
 // Project folder provisioning on the top-level, Microsoft-authenticated page.
 // No Monday API calls; no overwrite or deletion of existing SharePoint files.
 export const PROJECT_FOLDERS=Object.freeze(['Draft-Plans','Approved-Plans','Sync-Status','Backups','Logs']);
@@ -31,5 +32,25 @@ export function createProjectStorage({driveId,getAccessToken,fetcher=fetch}={}){
   for(const name of PROJECT_FOLDERS)await folder('Projects/'+boardId+'/'+name,project.id,name,true);
   return {boardId,path:'Projects/'+boardId,folders:[...PROJECT_FOLDERS],verification:'folder-metadata'};
  }
- return Object.freeze({ensure});
+
+ // New versions (V3+) have their own independent evidence tree.
+ // Provisioning creates ONLY empty folders, never copies, moves or edits data.
+ async function ensureVersion(boardId,version){
+  const layout=versionLayout(boardId,version);
+  if(layout.legacy)return Object.freeze({...await ensure(boardId),version,legacy:true});
+  await ensure(boardId);
+  const project=await folder('Projects/'+boardId,'unused',boardId,false);
+  const versions=await folder('Projects/'+boardId+'/'+VERSION_ROOT,project.id,VERSION_ROOT,true);
+  const versionDir=await folder(layout.versionRoot,versions.id,versionFolder(version),true);
+  const ids=new Set();
+  for(const name of VERSION_FOLDERS){
+   const item=await folder(layout.versionRoot+'/'+name,versionDir.id,name,true);
+   if(ids.has(item.id))throw Error('Duplicate version folder ID.');
+   ids.add(item.id);
+  }
+  return Object.freeze({boardId,planVersion:version,path:layout.versionRoot,
+   legacy:false,folders:[...VERSION_FOLDERS],manifest:layout.manifest,
+   verification:'folder-metadata',filesCreated:0,mondayWrites:0});
+ }
+ return Object.freeze({ensure,ensureVersion});
 }
