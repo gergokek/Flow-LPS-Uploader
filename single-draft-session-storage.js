@@ -5,6 +5,7 @@ import {createVersionFolderCatalog} from './project-version-folder-catalog.js';
 import {projectVerifiedCycleState} from './project-live-state-adapter.js';
 import {createPlanningActionGate} from './project-planning-action-gate.js';
 import {createPlanningInspectionTrace} from './planning-inspection-diagnostics.js';
+import {createVerifiedReadCache} from './verified-read-cache.js';
 import {createVersionedDraftStore} from './versioned-draft-storage.js';
 import {createVersionedGraphFiles} from './versioned-graph-files.js';
 import {createVersionedApprovalSource} from './versioned-approval-source.js';
@@ -74,9 +75,13 @@ export function createSingleDraftSessionStore({boardId,driveId,
    'Hiányos, hibás vagy túlméretes SharePoint fájl.');
   return item;
  }
+ const verifiedReads=createVerifiedReadCache();
  async function readFile(path){
   const first=await metadata(path);
-  if(!first)return null;
+  check();
+  if(!first){verifiedReads.discard(path);return null;}
+  const cached=verifiedReads.get(path,first);
+  if(cached){check();return Object.freeze(cached);}
   const d=await request('/items/'+encodeURIComponent(first.id));
   requireValid(d.ok,'SharePoint fájl visszaolvasási metadata HTTP '+d.status);
   const info=await d.json();
@@ -97,8 +102,10 @@ export function createSingleDraftSessionStore({boardId,driveId,
   requireValid(second?.id===first.id&&second.eTag===first.eTag&&
    second.size===first.size,'SharePoint fájl változott visszaolvasás közben.');
   check();
-  return Object.freeze({value,sha256:await sha256(data),id:first.id,
-   eTag:first.eTag,name:first.name,size:first.size});
+  const result={value,sha256:await sha256(data),id:first.id,
+   eTag:first.eTag,name:first.name,size:first.size};
+  check();verifiedReads.put(path,result);
+  return Object.freeze(result);
  }
  async function folderMeta(name){
   const res=await request(urlOf(folder(name))+'?$select=id,name,folder,parentReference');
