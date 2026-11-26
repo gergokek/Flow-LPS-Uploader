@@ -110,7 +110,7 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
     document.format==='mflow-plan-version-index'&&document.planVersion===3)||
    (target.name==='active-session-v3.json'&&document.format==='mflow-versioned-session'&&
     document.planVersion===3)||
-   (/^draft-v3(?:-r[0-9]{6})?\\.json$/.test(target.name)&&
+   (/^draft-v3(?:-r[0-9]{6})?\.json$/.test(target.name)&&
     document.format==='flow-lps-draft'&&document.session?.planVersion===3);
   ok(valid,'Nem illeszkedik a V3 fajlnev es a dokumentumtipus.');
   const bytes=new TextEncoder().encode(JSON.stringify(document,null,2)+'\n');
