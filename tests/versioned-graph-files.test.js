@@ -80,3 +80,18 @@ test('Graph adapter never claims a successful write without 201 Created and SHA 
  await assert.rejects(f.api.create(p,null));
  assert.equal(f.files.size,0);
 });
+
+test('V3 approval Graph adapter refuses Sync writes and cross-folder document types',async()=>{
+ const f=fixture(),base='Projects/5107075373/Versions/V0003';
+ const freeze={schemaVersion:1,boardId:'5107075373',planVersion:3,
+  status:'APPROVAL_FROZEN',format:'mflow-versioned-approval-freeze',
+  mondayWrites:0,userConfirmed:true};
+ await assert.rejects(f.api.create(base+'/Sync/sync-v3-step-000001-ahead.json',
+  {...freeze,format:'mflow-v3-sync-ahead'}),/fajlnev/);
+ await assert.rejects(f.api.create(base+'/Approved/session-v3-freeze.json',freeze),/fajlnev/);
+ await assert.rejects(f.api.create(base+'/Session/session-v3-freeze.json',
+  {...freeze,userConfirmed:false}),/fajlnev/);
+ await assert.rejects(f.api.create(base+'/Approved/approved-v3.json',
+  {...freeze,format:'flow-lps-approved-plan',status:'DRAFT'}),/fajlnev/);
+ assert.equal(f.requests.length,0,'Rejected requests must never reach Graph');
+});
