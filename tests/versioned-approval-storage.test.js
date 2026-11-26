@@ -29,7 +29,7 @@ async function fixture({drift=false,lost='',changedModel=false}={}){
   expectedGenerationSha256:model.generationSha256,
   expectedPredecessorSha256:model.source.completionSha256,
   boardFingerprintSha256:sha,boardVerifiedAt:new Date().toISOString(),executionId:uuid});
- const deps={inspectModel:async()=>structuredClone(changedModel?{...model,sourceDraftSha256:'0'.repeat(64)}:model),
+ const deps={inspectModel:async()=>changedModel?{...model,sourceDraftSha256:'0'.repeat(64)}:model,
   read:async path=>structuredClone(files.get(path)||null),
   list:async dir=>[...files.entries()].filter(([path])=>path.startsWith(dir+'/')&&
    !path.slice(dir.length+1).includes('/')).map(([,v])=>({id:v.id,name:v.name,eTag:v.eTag})),
