@@ -103,3 +103,5 @@ Changes in Uploader TEST branch:
 - Full Uploader regression CI 45850114683 SUCCESS. TEST deployment requested with marker commit 477798176faf8dc76f6b715ea555706dd1f9f353, run 45850187168. Verify completion before user retest.
 - This patch does not create SharePoint documents, does not touch Monday tasks, does not relax the two separate consents, and does not modify production Uploader root.
 User retest: close old Uploader popup, open freshly from Monday TEST, click read-only planning-inspect, verify START_NEXT and V3.0 button, click start once, then look in Uploader step 4 for a prominent "V3 DRAFT inditasanak jovahagyasa" button. If not visible or error, stop and share Monday/Uploader messages before retry.
+
+Final verification 2026-11-26: Uploader V3 start consent patch deployment run 45850187168 completed SUCCESS, tests run 45850187160 completed SUCCESS. This deployed updated /test/ Uploader UX, not a real V3 SharePoint session. Resume manual acceptance at START_NEXT -> one V3.0 start request -> visible separate Uploader button inside 4. section -> ACTIVE V3.0 confirmation; stop if missing or error.
