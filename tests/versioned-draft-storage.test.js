@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {pilotFileSha,pilotFingerprint} from '../v1-pilot-contract.js';
 import {createVersionedDraftStore} from '../versioned-draft-storage.js';
+import {createPlanningActionGate} from '../project-planning-action-gate.js';
+import {verifiedVersionedSelection} from '../versioned-session-selection.js';
 const boardId='5107075373',identity={editorId:'96423073',createdBy:'test-home.account'};
 const uuid='44444444-4444-4444-8444-444444444444';
 function data(){
@@ -132,4 +134,38 @@ test('unverified Approved or Sync artifact blocks a supposedly editable V3 DRAFT
    expectedSessionId:opened.claim.document.sessionId,
    expectedParentSha256:opened.baseline.receipt.sha256,updatedDraft:next}),/Approved\/Sync/);
  }
+});
+
+test('patch batch integrated: state-selected start -> verified V3.0 -> V3.1 -> resume, no duplicate writes',async()=>{
+ const x=fixture();
+ const makeGate=()=>createPlanningActionGate({
+  inspectCurrent:async()=>{
+   const p=await x.store().inspect(identity),active=p.status==='ACTIVE';
+   return {readOnly:true,mondayWrites:0,verifiedVersionCount:active?3:2,
+    boardMatches:true,action:active?'RESUME_DRAFT':'START_NEXT',
+    status:active?'ACTIVE':'READY_TO_START',planVersion:3,
+    revision:active?p.revision:null};
+  },storeForVersion:async version=>{
+   assert.equal(version,3);return x.store();
+  }
+ });
+ const first=await makeGate().execute({...x.args(),
+  mondayConfirmed:true,uploaderConfirmed:true});
+ assert.equal(first.action,'START_NEXT');
+ assert.equal(first.report.status,'ACTIVE');
+ const selected=await verifiedVersionedSelection(first.report);
+ assert.equal(selected.versionLabel,'V3');assert.equal(selected.planVersion,3);
+ assert.equal(x.writes.length,3);
+ const d=structuredClone(selected.draft);d.version=1;
+ d.history=[{revision:1,type:'edit',at:new Date().toISOString()}];
+ d.working[0].note='batch-v3-edit';
+ const saved=await x.store().append({...identity,updatedDraft:d,
+  expectedSessionId:selected.sessionId,
+  expectedParentSha256:selected.receipt.sha256});
+ assert.equal(saved.boardId,boardId);assert.equal(saved.versionLabel,'V3.1');
+ assert.equal(x.writes.length,4);
+ const second=await makeGate().execute({...identity});
+ assert.equal(second.action,'RESUME_DRAFT');
+ assert.equal(second.report.revision,1);
+ assert.equal(x.writes.length,4);
 });
