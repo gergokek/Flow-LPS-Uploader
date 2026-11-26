@@ -369,7 +369,7 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
  const account=msal.getAllAccounts()[0],createdBy=account?.homeAccountId;
  const store=singleSyncStore,selected=singleSession,
   queue=singleSessionQueue,opener=window.opener;
- const current=()=>!!account&&!!store?.v3Approval&&
+ const current=()=>testUi===true&&!!account&&!!store?.v3Approval&&
   store===singleSyncStore&&queue===singleSessionQueue&&
   selected===singleSession&&selected?.planVersion===3&&
   selected.sessionId===request.expectedSessionId&&
