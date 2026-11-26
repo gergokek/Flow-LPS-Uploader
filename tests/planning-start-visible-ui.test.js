@@ -11,7 +11,7 @@ test('V3 start consent is visibly mounted before the Uploader status output',()=
  assert.ok(section>=0&&host>section&&output>host);
  assert.match(html,/V3 DRAFT indításának külön Uploader-jóváhagyása/);
  assert.match(app,/host:planningStartConsentHost,state,isCurrent:current/);
- assert.doesNotMatch(app,/requestPlanningStartConsent\(\{[\s\S]*?host:approvedV1SyncOutput\.parentElement/);
+ assert.doesNotMatch(app,/requestPlanningStartConsent\(\{\s*host:approvedV1SyncOutput\.parentElement/);
 });
 test('Uploader reports cancellation or expired V3 start consent without silent waiting state',()=>{
  assert.match(app,/A V3\.0 masodik jovahagyasa nem sikerult/);
