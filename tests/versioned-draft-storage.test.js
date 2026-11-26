@@ -98,3 +98,22 @@ test('board drift or missing authorization writes absolutely no new session file
  const x=fixture();await assert.rejects(x.store().begin({...x.args(),userConfirmed:false}));
  assert.equal(x.writes.length,0);
 });
+
+test('a frozen V3 session never reports itself as a resumable ACTIVE draft',async()=>{
+ const x=fixture(),store=x.store();
+ const opened=await store.begin(x.args());
+ const freezePath='Projects/5107075373/Versions/V0003/Session/session-v3-freeze.json';
+ const document={schemaVersion:1,format:'mflow-versioned-freeze',planVersion:3,
+  sessionId:opened.claim.document.sessionId};
+ const file={value:document,path:freezePath,name:'session-v3-freeze.json',
+  id:'freeze-id',eTag:'freeze-etag',sha256:await pilotFileSha(document),
+  verification:'content-sha256-and-etag'};
+ x.files.set(freezePath,file);
+ const result=await x.store().inspect(identity);
+ assert.equal(result.status,'APPROVAL_FROZEN');
+ assert.equal(result.hasFreeze,true);
+ await assert.rejects(x.store().append({...identity,
+  expectedSessionId:opened.claim.document.sessionId,
+  expectedParentSha256:opened.baseline.receipt.sha256,
+  updatedDraft:opened.baseline.document}),/zarolt/);
+});
