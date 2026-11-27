@@ -2,6 +2,7 @@
 // All file operations are injected; this module cannot call Monday/Graph itself.
 import {pilotAssert as ok,pilotStable as stable,pilotHex,pilotFileSha,pilotUuid,pilotFingerprint}
  from './v1-pilot-contract.js';
+import {isVersionedPlan} from './versioned-cycle-version.js';
 import {versionFilePath,draftFileName,lifecycleFileName} from './version-workspace-layout.js';
 import {inspectPredecessor,successorNames,makeSuccessorClaim,makeSuccessorManifest,
  makeSuccessorBaseline,inspectSuccessorArtifacts,makeNextSuccessorDraft}
@@ -29,7 +30,7 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
  check=()=>{},checkPinned=()=>{}}={}){
  for(const fn of [inspectSource,read,list,create,ensureFolders,readBoard,sourceVerifier,now,
   randomUUID,check,checkPinned])ok(typeof fn==='function','Hibas verzios tarolo fuggoseg.');
- ok(version===3,'V4+ munkamenet-kezelese meg nincs teljesen igazolva.');
+ ok(isVersionedPlan(version),'Invalid versioned DRAFT store.');
  let busy=false,blocked=false;
  const guard=()=>{check();ok(!blocked,'Bizonytalan mentes; uj kapcsolaton ujra kell ellenorizni.');};
  const entered=()=>{guard();ok(!busy,'Mar fut egy verzios munkamenet-muvelet.');busy=true;};
@@ -38,7 +39,10 @@ export function createVersionedDraftStore({version=3,inspectSource,read,list,cre
   guard();const evidence=await inspectSource(args);guard();
   const model=await sourceVerifier({predecessor:evidence,version,
    editorId:args.editorId,createdBy:args.createdBy,now:now().getTime()});
-  guard();return {evidence,model};
+  guard();ok(model?.version===version&&model?.boardId==='5107075373'&&
+   model.source?.planVersion===version-1&&model.editorId===args.editorId&&model.createdBy===args.createdBy,
+   'A verzios DRAFT forrasa masik ciklushoz tartozik.');
+  return {evidence,model};
  }
  async function scan(model){
   guard();const n=successorNames(version);

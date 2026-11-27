@@ -2,6 +2,7 @@
 // No Graph or Monday side effects. V4 use requires independently verified source.
 import {PILOT_BOARD,pilotAssert as ok,pilotStable as stable,
  pilotSha as sha,pilotHex,pilotUuid} from './v1-pilot-contract.js';
+import {isVersionedPlan,completedSyncStatus} from './versioned-cycle-version.js';
 import {checkVersionedApprovalFile,inspectVersionedApprovalState,
  versionedApprovalCommon} from './versioned-approval-sync-contract.js';
 
@@ -18,7 +19,7 @@ const matches=(doc,fields)=>Object.entries(fields).every(([k,v])=>eq(doc?.[k],v)
 
 export function requireVersionedSyncBoard(args,state,now=Date.now()){
  const m=state?.model;
- ok(m?.boardId===PILOT_BOARD&&m.version===3&&
+ ok(m?.boardId===PILOT_BOARD&&isVersionedPlan(m.version)&&
   args?.editorId===m.editorId&&args.createdBy===m.createdBy&&
   args.expectedSessionId===m.sessionId&&args.expectedRevision===m.revision&&
   args.expectedDraftSha256===m.sourceDraftSha256&&
@@ -30,7 +31,7 @@ export function requireVersionedSyncBoard(args,state,now=Date.now()){
   'V3 szinkron: elavult session, tervezet, Approved, naplo vagy board proof.');
 }
 export function versionedSyncCommon(m,approval){
- ok(m?.version===3&&approval?.approved?.receipt&&
+ ok(isVersionedPlan(m?.version)&&approval?.approved?.receipt&&
     approval?.freeze?.receipt&&approval?.approval?.receipt,
   'Hianyzo V3 Approved Plan-bizonyitek.');
  return common(m,approval);
@@ -90,7 +91,7 @@ export async function versionedSyncGeneration(report){
 }
 export async function inspectVersionedSyncCycle(report,now=Date.now()){
  const {model:m,freeze,approved,approval,records,final}=report||{};
- ok(m?.version===3&&m.boardId===PILOT_BOARD&&
+ ok(isVersionedPlan(m?.version)&&m.boardId===PILOT_BOARD&&
   Array.isArray(records)&&records.length<=m.changedTaskCount&&
   final!==undefined&&freeze!==undefined&&approved!==undefined&&approval!==undefined,
   'A V3 teljes szinkronnaplo nem vizsgalhato.');
@@ -137,7 +138,7 @@ export async function inspectVersionedSyncCycle(report,now=Date.now()){
   await checkVersionedApprovalFile(final,m.boardId,m.version,'sync',m.names.completed);
   const d=final.document;
   ok(matches(d,common(m,a))&&
-   d.format==='mflow-versioned-sync-final'&&d.status==='V3_SYNC_COMPLETED'&&
+   d.format==='mflow-versioned-sync-final'&&d.status===completedSyncStatus(m.version)&&
    d.verifiedTaskCount===m.changedTaskCount&&
    d.totalTaskCount===m.taskCount&&d.remainingTaskCount===0&&
    d.ledgerSha256===ledgerSha256&&d.lastResultSha256===previous&&
@@ -146,7 +147,7 @@ export async function inspectVersionedSyncCycle(report,now=Date.now()){
    d.automaticallyRetryable===false&&when(d.createdAt,now)&&
    recent(d.checkedAt,Date.parse(d.createdAt)),
    'A V3 lezaro nyugta nem bizonyit teljes Monday-board szinkront.');
-  state.status='V3_SYNC_COMPLETED';
+  state.status=completedSyncStatus(m.version);
  }
  return state;
 }
@@ -172,7 +173,7 @@ export function makeVersionedSyncFinal(m,approval,state,args,now=Date.now()){
   state.expectedBoardSha256===m.finalBoardSha256,
   'A V3 sync veglegesitese elott hianyzik a teljes board bizonyitek.');
  return {...versionedSyncCommon(m,approval),format:'mflow-versioned-sync-final',
-  status:'V3_SYNC_COMPLETED',verifiedTaskCount:m.changedTaskCount,
+  status:completedSyncStatus(m.version),verifiedTaskCount:m.changedTaskCount,
   totalTaskCount:m.taskCount,remainingTaskCount:0,ledgerSha256:state.ledgerSha256,
   lastResultSha256:state.previousResultSha256,
   boardReadbackSha256:m.finalBoardSha256,fullBoardReadbackMatches:true,

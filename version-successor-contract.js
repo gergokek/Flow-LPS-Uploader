@@ -1,10 +1,12 @@
-// Shared successor planning contract for isolated TEST. The only currently
-// supported predecessor inspector is the fully-verified Approved V2 cycle.
+// Shared successor artifacts for isolated TEST; V2 is the historical root.
+// The Vn lineage inspector rebuilds all later predecessors from raw evidence.
 // Versioned V3+ SharePoint paths are derived, never submitted by the browser.
 import {PILOT_BOARD,PILOT_FIELDS,pilotAssert as ok,pilotStable as stable,
  pilotSha as sha,pilotFileSha,pilotUuid,pilotHex,pilotTask,pilotFingerprint}
  from './v1-pilot-contract.js';
 import {inspectV2Cycle} from './v2-approval-sync-contract.js';
+import {isVersionedPlan} from './versioned-cycle-version.js';
+export {inspectVersionedPredecessor as inspectPredecessor} from './versioned-lineage-contract.js';
 import {versionLayout,draftFileName,lifecycleFileName,makeVersionInfo}
  from './version-workspace-layout.js';
 
@@ -26,9 +28,7 @@ export function successorNames(version){
  return {layout,manifest:'version-info.json',claim:lifecycleFileName(version,'claim'),
   baseline:draftFileName(version),closure:lifecycleFileName(version,'closure')};
 }
-export async function inspectPredecessor({predecessor,version,editorId,createdBy,now=Date.now()}){
- // Do NOT infer V4+ completion from a V3 folder or a mere Approved filename.
- // Future cycles will plug in their version-specific fully verified inspector.
+export async function inspectLegacyV2Predecessor({predecessor,version,editorId,createdBy,now=Date.now()}){
  ok(version===3,'V4+ elozo ciklus teljes ellenorzese meg nincs bekotve.');
  const checked=await inspectV2Cycle(predecessor,editorId,createdBy,now);
  ok(checked.status==='V2_SYNC_COMPLETED'&&checked.remainingTaskCount===0&&
@@ -53,7 +53,8 @@ export async function inspectPredecessor({predecessor,version,editorId,createdBy
   taskCount:base.tasks.length,completedAt:final.document.createdAt};
 }
 export function makeSuccessorClaim(model,{sessionId,createdAt}){
- ok(model?.version===3&&pilotUuid(sessionId)&&sessionId!==model.source.sessionId&&
+ ok(isVersionedPlan(model?.version)&&model.boardId===PILOT_BOARD&&
+  model.source?.planVersion===model.version-1&&pilotUuid(sessionId)&&sessionId!==model.source.sessionId&&
   validDate(createdAt,Date.now()),'Hibas V3 munkamenet-foglalas.');
  return {schemaVersion:1,format:'mflow-versioned-session',status:'ACTIVE',
   boardId:PILOT_BOARD,planVersion:model.version,sessionId,

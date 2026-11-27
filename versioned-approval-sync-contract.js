@@ -105,7 +105,7 @@ export async function buildVersionedApprovalModelFromArtifacts({model,artifacts,
 }
 export async function inspectVersionedApprovalSource({predecessor,artifacts,
  planVersion=3,editorId,createdBy,now=Date.now()}){
- // V4+ remains fail-closed until its complete predecessor inspector exists.
+ // Rebuild every predecessor cycle, including all historical journals.
  const model=await inspectPredecessor({predecessor,version:planVersion,
   editorId,createdBy,now});
  return buildVersionedApprovalModelFromArtifacts({model,artifacts,now});

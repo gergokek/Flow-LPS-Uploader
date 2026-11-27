@@ -3,24 +3,27 @@
 // A filename by itself is not evidence. Sync is deliberately unsupported here.
 import {pilotAssert as ok,pilotHex,pilotFileSha,pilotStable as stable} from './v1-pilot-contract.js';
 import {versionFilePath,draftFileName,lifecycleFileName} from './version-workspace-layout.js';
+import {isVersionedPlan,draftRevisionPattern,syncStepPattern} from './versioned-cycle-version.js';
 import {successorNames} from './version-successor-contract.js';
 import {inspectVersionedApprovalSource} from './versioned-approval-sync-contract.js';
 
 const copy=x=>structuredClone(x);
 const catalog=items=>stable(items.map(({name,id,eTag})=>({name,id,eTag}))
  .sort((a,b)=>a.name.localeCompare(b.name)));
-export function createVersionedApprovalSource({inspectV2,read,list,
+export function createVersionedApprovalSource({version=3,inspectV2,inspectSource=inspectV2,read,list,
  now=()=>new Date(),check=()=>{}}={}){
- for(const fn of [inspectV2,read,list,now,check])
+ ok(isVersionedPlan(version),'Invalid versioned approval source.');
+ for(const fn of [inspectSource,read,list,now,check])
   ok(typeof fn==='function','Nem teljes a V3 jovahagyasi forras ellenorzo.');
- const n=successorNames(3),boardId='5107075373',version=3;
+ const n=successorNames(version),boardId='5107075373';
+ const revPattern=draftRevisionPattern(version),stepPattern=syncStepPattern(version);
  const guard=()=>check();
  const path=(kind,name)=>versionFilePath({boardId,version,kind,name});
  async function inspect({editorId,createdBy}={}){
   guard();
   ok(/^\d+$/.test(editorId||'')&&typeof createdBy==='string'&&createdBy.length>0,
    'Bejelentkezett szerkeszto es Microsoft-fiok szukseges.');
-  const predecessor=await inspectV2({editorId,createdBy});guard();
+  const predecessor=await inspectSource({editorId,createdBy});guard();
   const folders=[n.layout.session,n.layout.drafts,n.layout.approved,n.layout.sync];
   const initial=await Promise.all(folders.map(folder=>list(folder)));guard();
   ok(initial.every(Array.isArray),'A V3 SharePoint mappak listaja nem teljes.');
@@ -32,16 +35,16 @@ export function createVersionedApprovalSource({inspectV2,read,list,
   }
   const [sessions,drafts,approved,sync]=initial;
   const allowedSessions=new Set([n.manifest,n.claim,
-   lifecycleFileName(3,'freeze'),lifecycleFileName(3,'approval-receipt')]);
+   lifecycleFileName(version,'freeze'),lifecycleFileName(version,'approval-receipt')]);
   ok(sessions.every(x=>allowedSessions.has(x.name))&&
-   drafts.every(x=>x.name===n.baseline||/^draft-v3-r\d{6}\.json$/.test(x.name))&&
-   approved.every(x=>x.name===lifecycleFileName(3,'approved'))&&
-   sync.every(x=>x.name===lifecycleFileName(3,'completion')||
-    /^sync-v3-step-\d{6}-(ahead|result)\.json$/.test(x.name)),
+   drafts.every(x=>x.name===n.baseline||revPattern.test(x.name))&&
+   approved.every(x=>x.name===lifecycleFileName(version,'approved'))&&
+   sync.every(x=>x.name===lifecycleFileName(version,'completion')||
+    stepPattern.test(x.name)),
    'Nem vart V3 fajl vagy szinkronnaplo. Ellenorzes tiltva.');
   const revs=drafts.filter(x=>x.name!==n.baseline)
    .sort((a,b)=>a.name.localeCompare(b.name));
-  ok(revs.length<=1000&&revs.every((item,i)=>item.name===draftFileName(3,i+1)),
+  ok(revs.length<=1000&&revs.every((item,i)=>item.name===draftFileName(version,i+1)),
    'Hianyzo V3 DRAFT revizio.');
   const known=[new Map(sessions.map(x=>[x.name,x])),
    new Map(drafts.map(x=>[x.name,x]))];

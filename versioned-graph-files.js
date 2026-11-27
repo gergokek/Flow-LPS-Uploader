@@ -1,6 +1,7 @@
 // Microsoft Graph adapter for isolated TEST V3 versioned artifacts.
 // No Monday writer, no user-controlled paths and no overwrite of existing JSON.
-import {versionLayout,versionFilePath} from './version-workspace-layout.js';
+import {isVersionedPlan,draftRevisionPattern,syncStepPattern,completedSyncStatus} from './versioned-cycle-version.js';
+import {versionLayout,versionFilePath,draftFileName,lifecycleFileName} from './version-workspace-layout.js';
 import {createProjectStorage} from './project-storage.js';
 import {createVerifiedReadCache} from './verified-read-cache.js';
 import {sha256,MAX_DRAFT_BYTES} from './single-draft-session-core.js';
@@ -11,7 +12,7 @@ const board='5107075373';
 export function createVersionedGraphFiles({boardId=board,version=3,driveId,
  getAccessToken,fetcher=fetch,assertCurrent=()=>true}={}){
  const layout=versionLayout(boardId,version);
- ok(boardId===board&&version===3&&!layout.legacy&&
+ ok(boardId===board&&isVersionedPlan(version)&&!layout.legacy&&
   /^b![-_A-Za-z0-9]+$/.test(driveId||'')&&
   [getAccessToken,fetcher,assertCurrent].every(x=>typeof x==='function'),
   'V3 Graph tarolo nincs megfeleloen beallitva.');
@@ -118,41 +119,41 @@ export function createVersionedGraphFiles({boardId=board,version=3,driveId,
   // Sync creates are restricted by exact name/type/status. Full validation is
   // independently required by the journal storage before mutation.
   const valid=(target.folder===layout.session&&target.name==='version-info.json'&&
-    document.format==='mflow-plan-version-index'&&document.planVersion===3)||
-   (target.folder===layout.session&&target.name==='active-session-v3.json'&&
-    document.format==='mflow-versioned-session'&&document.planVersion===3)||
-   (target.folder===layout.drafts&&/^draft-v3(?:-r[0-9]{6})?\.json$/.test(target.name)&&
-    document.format==='flow-lps-draft'&&document.session?.planVersion===3)||
-   (target.folder===layout.session&&target.name==='session-v3-freeze.json'&&
+    document.format==='mflow-plan-version-index'&&document.planVersion===version)||
+   (target.folder===layout.session&&target.name===lifecycleFileName(version,'claim')&&
+    document.format==='mflow-versioned-session'&&document.planVersion===version)||
+   (target.folder===layout.drafts&&(target.name===draftFileName(version)||draftRevisionPattern(version).test(target.name))&&
+    document.format==='flow-lps-draft'&&document.session?.planVersion===version)||
+   (target.folder===layout.session&&target.name===lifecycleFileName(version,'freeze')&&
     document.format==='mflow-versioned-approval-freeze'&&
-    document.planVersion===3&&document.status==='APPROVAL_FROZEN'&&
+    document.planVersion===version&&document.status==='APPROVAL_FROZEN'&&
     document.userConfirmed===true&&document.mondayWrites===0)||
-   (target.folder===layout.session&&target.name==='session-v3-approved.json'&&
+   (target.folder===layout.session&&target.name===lifecycleFileName(version,'approval-receipt')&&
     document.format==='mflow-versioned-approval-receipt'&&
-    document.planVersion===3&&document.status==='APPROVED_PLAN_STORED'&&
+    document.planVersion===version&&document.status==='APPROVED_PLAN_STORED'&&
     document.mondayWrites===0)||
-   (target.folder===layout.approved&&target.name==='approved-v3.json'&&
-    document.format==='flow-lps-approved-plan'&&document.planVersion===3&&
+   (target.folder===layout.approved&&target.name===lifecycleFileName(version,'approved')&&
+    document.format==='flow-lps-approved-plan'&&document.planVersion===version&&
     document.status==='APPROVED'&&document.isApprovedPlan===true&&
     document.mondaySyncAllowed===false)||
    (target.folder===layout.sync&&
-    /^sync-v3-step-[0-9]{6}-ahead\.json$/.test(target.name)&&
+    syncStepPattern(version).test(target.name)&&
     document.format==='mflow-versioned-sync-ahead'&&
-    document.planVersion===3&&document.status==='WRITE_AHEAD'&&
+    document.planVersion===version&&document.status==='WRITE_AHEAD'&&
     document.maximumMutationAttempts===1&&document.automaticallyRetryable===false&&
     Number.isSafeInteger(document.step)&&document.step>=1&&
-    target.name==='sync-v3-step-'+String(document.step).padStart(6,'0')+'-ahead.json')||
+    target.name===lifecycleFileName(version,'ahead',document.step))||
    (target.folder===layout.sync&&
-    /^sync-v3-step-[0-9]{6}-result\.json$/.test(target.name)&&
-    document.format==='mflow-versioned-sync-result'&&document.planVersion===3&&
+    syncStepPattern(version).test(target.name)&&
+    document.format==='mflow-versioned-sync-result'&&document.planVersion===version&&
     ['ITEM_READBACK_VERIFIED','ITEM_UNCERTAIN','ABORTED_NO_WRITE'].includes(document.status)&&
     [0,1].includes(document.mutationAttempts)&&
     document.automaticallyRetryable===false&&
     Number.isSafeInteger(document.step)&&document.step>=1&&
-    target.name==='sync-v3-step-'+String(document.step).padStart(6,'0')+'-result.json')||
-   (target.folder===layout.sync&&target.name==='sync-v3-completed.json'&&
-    document.format==='mflow-versioned-sync-final'&&document.planVersion===3&&
-    document.status==='V3_SYNC_COMPLETED'&&document.fullBoardReadbackMatches===true&&
+    target.name===lifecycleFileName(version,'result',document.step))||
+   (target.folder===layout.sync&&target.name===lifecycleFileName(version,'completion')&&
+    document.format==='mflow-versioned-sync-final'&&document.planVersion===version&&
+    document.status===completedSyncStatus(version)&&document.fullBoardReadbackMatches===true&&
     document.approvedExactMatch===true&&document.remainingTaskCount===0&&
     document.automaticallyRetryable===false);
   ok(valid,'Nem illeszkedik a V3 fajlnev, celmappa es dokumentumtipus.');

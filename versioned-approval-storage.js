@@ -3,7 +3,8 @@
 // An ambiguous create locks this instance; recovery must re-inspect in a new instance.
 import {pilotAssert as ok,pilotFingerprint,pilotSha,pilotStable,pilotUuid}
  from './v1-pilot-contract.js';
-import {versionFilePath} from './version-workspace-layout.js';
+import {versionFilePath,lifecycleFileName} from './version-workspace-layout.js';
+import {isVersionedPlan} from './versioned-cycle-version.js';
 import {makeVersionedApprovalFreeze,makeVersionedApprovedPlan,
  makeVersionedApprovalReceipt,inspectVersionedApprovalState,
  requireVersionedApprovalBoard,checkVersionedApprovalFile}
@@ -14,9 +15,10 @@ const index=items=>pilotStable(items.map(({name,id,eTag})=>({name,id,eTag}))
  .sort((a,b)=>a.name.localeCompare(b.name)));
 
 export function createVersionedApprovalStore({
- inspectModel,read,list,create,readBoard,checkPinned,
+ version=3,inspectModel,read,list,create,readBoard,checkPinned,
  check=()=>{},now=()=>new Date()
 }={}){
+ ok(isVersionedPlan(version),'Invalid versioned approval store.');
  for(const dependency of [inspectModel,read,list,create,readBoard,checkPinned,check,now])
   ok(typeof dependency==='function','Hianyzo verzios jovahagyasi fuggoseg.');
  let busy=false,blocked=false;
@@ -37,7 +39,7 @@ export function createVersionedApprovalStore({
  };
  async function scan(model){
   guard();
-  ok(model?.boardId==='5107075373'&&model?.version===3,
+  ok(model?.boardId==='5107075373'&&model?.version===version,
    'A kovetkezo verzio Approved motorja nincs igazolva.');
   const n=model.names;
   const [sessions,approvedFiles,syncFiles]=await Promise.all([
@@ -45,8 +47,8 @@ export function createVersionedApprovalStore({
   guard();
   ok([sessions,approvedFiles,syncFiles].every(Array.isArray),
    'Hibas SharePoint fajllista.');
-  const sessionAllowed=new Set(['version-info.json','active-session-v3.json',
-   n.freeze,n.approval,'session-v3-closed.json']);
+  const sessionAllowed=new Set(['version-info.json',lifecycleFileName(version,'claim'),
+   n.freeze,n.approval,lifecycleFileName(version,'closure')]);
   ok(sessions.every(x=>sessionAllowed.has(x.name))&&
    approvedFiles.every(x=>x.name===n.approved)&&syncFiles.length===0,
    'Ismeretlen vagy mar megkezdett V3 Approved/Sync ciklus.');
@@ -79,7 +81,7 @@ export function createVersionedApprovalStore({
  async function getModel(args){
   guard();
   const m=await inspectModel(args);guard();
-  ok(m?.version===3&&m?.boardId==='5107075373',
+  ok(m?.version===version&&m?.boardId==='5107075373',
    'A megelozo ciklus vagy V3 DRAFT nem igazolt.');
   return m;
  }

@@ -4,7 +4,8 @@
 import {pilotAssert as ok,pilotUuid,pilotHex,pilotFileSha,pilotStable as stable,
  pilotFingerprint,pilotSha} from './v1-pilot-contract.js';
 import {versionFilePath,lifecycleFileName} from './version-workspace-layout.js';
-import {inspectV4StartReadiness} from './versioned-next-cycle-proof.js';
+import {inspectNextCycleReadiness} from './versioned-next-cycle-proof.js';
+import {isVersionedPlan,completedSyncStatus,syncStepPattern} from './versioned-cycle-version.js';
 import {checkVersionedApprovalFile} from './versioned-approval-sync-contract.js';
 import {inspectVersionedSyncCycle,requireVersionedSyncBoard,
  makeVersionedSyncAhead,makeVersionedSyncFinal,
@@ -18,8 +19,10 @@ const index=files=>stable(files.map(f=>({name:f.name,id:f.id,eTag:f.eTag}))
  .sort((a,b)=>a.name.localeCompare(b.name)));
 
 export function createVersionedSyncStore({
- inspectModel,read,list,create,readBoard,checkPinned,
+ version=3,inspectModel,read,list,create,readBoard,checkPinned,
  check=()=>{},now=()=>new Date()}={}){
+ ok(isVersionedPlan(version),'Invalid versioned sync store.');
+ const stepPattern=syncStepPattern(version);
  for(const fn of [inspectModel,read,list,create,readBoard,checkPinned,check,now])
   ok(typeof fn==='function','Hianyzo V3 szinkronfuggoseg.');
  let busy=false,blocked=false,authorization=null,cached=null;
@@ -38,18 +41,18 @@ export function createVersionedSyncStore({
   return result;
  }
  async function scan(m){
-  guard();ok(m?.version===3&&m.boardId==='5107075373',
+  guard();ok(m?.version===version&&m.boardId==='5107075373',
    'V4+ szinkronra nem kiterjesztett motor.');
   const n=m.names,folders=[n.layout.session,n.layout.approved,n.layout.sync];
   const first=await Promise.all(folders.map(p=>list(p)));guard();
   ok(first.every(Array.isArray),'Hianyzo V3 fajlkatalogus.');
   const [sessions,approvedFiles,syncFiles]=first;
-  const sessionAllowed=new Set(['version-info.json','active-session-v3.json',
+  const sessionAllowed=new Set(['version-info.json',lifecycleFileName(version,'claim'),
    n.freeze,n.approval]);
   ok(sessions.every(f=>sessionAllowed.has(f.name))&&
    approvedFiles.every(f=>f.name===n.approved)&&
    syncFiles.every(f=>f.name===n.completed||
-    /^sync-v3-step-\d{6}-(ahead|result)\.json$/.test(f.name)),
+    stepPattern.test(f.name)),
    'Ismeretlen V3 session/Approved/Sync fajl.');
   for(const files of first){
    ok(files.every(f=>f?.id&&f.name&&f.eTag)&&
@@ -72,7 +75,7 @@ export function createVersionedSyncStore({
      ok(final?.receipt.sha256===part.receipt.sha256,'Eltero V3 vegnyugta.');
      continue;
     }
-    const match=/^sync-v3-step-(\d{6})-(ahead|result)\.json$/.exec(meta.name);
+    const match=stepPattern.exec(meta.name);
     const step=Number(match[1]);
     ok(step>0&&step<=m.changedTaskCount,'Idegen V3 naplosorszam.');
     const entry=rows.get(step)||{step,ahead:null,result:null};
@@ -217,7 +220,7 @@ export function createVersionedSyncStore({
    const doc=makeVersionedSyncFinal(s.model,r,s,args,now().getTime());
    const saved=await createChecked(s.model,s.model.names.completed,doc);
    const after=await fresh(args);
-   ok(after.state.status==='V3_SYNC_COMPLETED','V3 teljes lezaro ellenorzes sikertelen.');
+   ok(after.state.status===completedSyncStatus(version),'V3 teljes lezaro ellenorzes sikertelen.');
    // Terminal completion stays read-only inspectable by this instance.
    // Further writes are impossible: final exists, finish is spent and no next step.
    return saved;
@@ -226,12 +229,12 @@ export function createVersionedSyncStore({
  async function readiness(args={}){
   enter();try{
    const {report,state}=await current(args);
-   ok(state.status==='V3_SYNC_COMPLETED'&&args.editorId===state.model.editorId&&
+   ok(state.status===completedSyncStatus(version)&&args.editorId===state.model.editorId&&
     args.createdBy===state.model.createdBy,
     'V4: V3 szinkron nincs teljesen lezarva.');
    await checkPinned(args,state.model);guard();
    const board=await readBoard(args);guard();
-   return inspectV4StartReadiness({
+   return inspectNextCycleReadiness({
     report,verifiedSource:await inspectModel(args),liveBoard:board,
     editorId:args.editorId,createdBy:args.createdBy,now:now().getTime()});
   }finally{leave();}
