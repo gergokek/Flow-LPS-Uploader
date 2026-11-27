@@ -55,3 +55,19 @@ test('missing source verification is rejected before any confirmation',async()=>
   attach:async()=>{}}),/hitelesitett/);
  assert.equal(attempted,false);
 });
+
+test('V4/V5 use the same flow and versioned phases; wrong version cannot attach',async()=>{
+ for(const v of [4,5]){
+  const phases=[],s={...selected,planVersion:v},r={...result,planVersion:v};
+  const common={inspected:{...baseline,planVersion:v},isCurrent:()=>true,
+   consent:async()=>true,execute:async()=>r,onPhase:p=>phases.push(p)};
+  let attachments=0;
+  await runPlanningStartFlow({...common,select:async()=>s,attach:async()=>{attachments++;}});
+  assert.equal(attachments,1);
+  assert.ok(phases.includes('READBACK_OF_V'+v+'_RECEIPTS'));
+  assert.equal(phases.at(-1),'ACTIVE_V'+v);
+  await assert.rejects(runPlanningStartFlow({...common,select:async()=>selected,
+   attach:async()=>{attachments++;}}),/Ne inditsd ujra/);
+  assert.equal(attachments,1);
+ }
+});

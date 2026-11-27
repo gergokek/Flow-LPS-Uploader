@@ -41,7 +41,7 @@ export function attachSingleDraftSessionBridge({win=window,
   if(event.data.kind==='v1-pilot-request'&&approvedForSyncState&&(!selectedSession||(selectedSession.planVersion===2&&event.data.action?.startsWith('v2-flow-')))){
    const x=event.data;
    if(!uuid(x.requestId)||pilotSeen.has(x.requestId)||
-      !['inspect','ahead','result','full-inspect','full-begin','full-reconcile','full-ahead','full-result','full-finish','v2-inspect','v2-begin','v2-open','v2-flow-inspect','v2-flow-begin','v2-flow-approve','v2-flow-ahead','v2-flow-result','v2-flow-finish','planning-inspect','planning-open','planning-consent','planning-begin','planning-open-v3-approved'].includes(x.action)||
+      !['inspect','ahead','result','full-inspect','full-begin','full-reconcile','full-ahead','full-result','full-finish','v2-inspect','v2-begin','v2-open','v2-flow-inspect','v2-flow-begin','v2-flow-approve','v2-flow-ahead','v2-flow-result','v2-flow-finish','planning-inspect','planning-inspect-vn','planning-open','planning-consent','planning-begin','planning-open-v3-approved'].includes(x.action)||
       x.expectedApprovedSha256!==approvedForSyncState.sha256||
       x.expectedSessionId!==approvedForSyncState.sessionId||
       x.expectedRevision!==approvedForSyncState.revision)return;

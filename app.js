@@ -544,6 +544,21 @@ const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,s
   showAccount(account);
   return handoff;
  }
+ if(request.action==='planning-inspect-vn'){
+  // Staged read-only route, not a new start trigger. The existing V3 UI and
+  // consent/write routes remain unchanged until the paired client is ready.
+  const selected=singleSyncSelected,store=singleSyncStore;
+  const current=()=>testUi===true&&singleSyncSelected===selected&&singleSyncStore===store&&
+   projectBoard.value.trim()==='5107075373'&&singleBridge.active&&singleBridge.ready()&&
+   msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId;
+  if(!current())throw Error('A Vn projektkapcsolat megvaltozott.');
+  const state=await store.inspectVersionedPlanningState({createdBy,editorId:payload.editorId,
+   boardFingerprint:payload.boardFingerprint});
+  if(!current()||state?.readOnly!==true||state.mondayWrites!==0||state.startEnabled!==false)
+   throw Error('A Vn projektallapot nem igazolt.');
+  return state;
+ }
  if(request.action==='planning-inspect'){
   const selected=singleSyncSelected,store=singleSyncStore;
   if(projectBoard.value.trim()!=='5107075373'||!singleBridge.active||

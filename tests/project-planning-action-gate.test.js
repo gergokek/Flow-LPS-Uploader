@@ -82,3 +82,18 @@ test('Approved V0-only project starts V1 with no existing version count',async()
  const result=await gate.execute(options);
  assert.equal(selected,1);assert.equal(result.planVersion,1);
 });
+
+test('explicit version and predecessor consent cannot authorize another cycle',async()=>{
+ for(const mode of ['version','predecessor','changed-predecessor','expired-during-scan']){
+  let scans=0,writes=0,t=Date.now();
+  const sha='a'.repeat(64),state={...base,planVersion:4,verifiedVersionCount:3,predecessorCompletionSha256:sha};
+  const gate=createPlanningActionGate({now:()=>t,inspectCurrent:async()=>{
+   scans++;
+   if(scans===2&&mode==='expired-during-scan')t+=121000;
+   return scans===2&&mode==='changed-predecessor'?{...state,predecessorCompletionSha256:'b'.repeat(64)}:state;
+  },storeForVersion:async()=>({...executor(4),begin:async()=>{writes++;}})});
+  await assert.rejects(gate.execute({...options,boardVerifiedAt:new Date(t).toISOString(),
+   expectedPlanVersion:mode==='version'?5:4,expectedPredecessorSha256:mode==='predecessor'?'b'.repeat(64):sha}));
+  assert.equal(writes,0,mode);
+ }
+});

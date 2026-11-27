@@ -24,7 +24,9 @@ export function createPlanningActionGate({inspectCurrent,storeForVersion,
   return a.action===b.action&&a.planVersion===b.planVersion&&
    a.status===b.status&&a.revision===b.revision&&
    a.verifiedVersionCount===b.verifiedVersionCount&&
-   a.boardMatches===b.boardMatches;
+   a.boardMatches===b.boardMatches&&
+   a.predecessorCompletionSha256===b.predecessorCompletionSha256&&
+   a.sessionId===b.sessionId&&a.latestDraftSha256===b.latestDraftSha256;
  }
  async function inspect(args={}){
   ok(!busy,'A planning operation is in progress.');
@@ -35,6 +37,11 @@ export function createPlanningActionGate({inspectCurrent,storeForVersion,
   busy=true;
   try{
    const first=await snapshot(args);
+   ok(args.expectedPlanVersion===undefined||args.expectedPlanVersion===first.planVersion,
+    'The requested plan version changed.');
+   ok(args.expectedPredecessorSha256===undefined||
+    args.expectedPredecessorSha256===first.predecessorCompletionSha256,
+    'The approved predecessor receipt changed.');
    ok(actions.has(first.action),'The current planning cycle must be verified before continuing.');
    if(first.action==='START_NEXT'){
     ok(first.boardMatches===true&&args.mondayConfirmed===true&&
@@ -53,7 +60,9 @@ export function createPlanningActionGate({inspectCurrent,storeForVersion,
    if(first.action==='RESUME_DRAFT'){
     const current=await executor.inspect(args);check();
     ok(current?.status==='ACTIVE'&&current.planVersion===first.planVersion&&
-      current.revision===first.revision,
+      current.revision===first.revision&&
+      (first.sessionId===undefined||current.claim?.document?.sessionId===first.sessionId)&&
+      (first.latestDraftSha256===undefined||current.latest?.receipt?.sha256===first.latestDraftSha256),
       'The active DRAFT was changed or not verified.');
     return Object.freeze({action:first.action,planVersion:first.planVersion,
      revision:current.revision,report:current,mondayWrites:0});
@@ -68,6 +77,9 @@ export function createPlanningActionGate({inspectCurrent,storeForVersion,
      report:current,mondayWrites:0});
    }
    // No version number from a browser payload is used to select the engine.
+   const verifiedAt=Date.parse(args.boardVerifiedAt),time=now();
+   ok(Number.isFinite(verifiedAt)&&verifiedAt<=time+5000&&time-verifiedAt<=120000,
+    'The Monday board verification expired during inspection.');
    const result=await executor.begin({...args,userConfirmed:true});check();
    ok(result?.planVersion===first.planVersion&&result.status==='ACTIVE'&&
     result.mondayWrites===0,

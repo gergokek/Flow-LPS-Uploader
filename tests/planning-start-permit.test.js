@@ -31,3 +31,17 @@ test('no consent, old board, identity drift, expired permit and disconnect fail 
   assert.throws(()=>x.permit.consume({...input,...args}));
  }
 });
+
+test('V4 and V5 permits are bound to an explicit plan version and cannot be reused',()=>{
+ for(const v of [4,5]){
+  const x=setup(),s={...state,planVersion:v},a={...args,expectedPlanVersion:v};
+  assert.throws(()=>x.permit.issue({state:s,args,confirmed:true,isCurrent:()=>true}));
+  const p=x.permit.issue({state:s,args:a,confirmed:true,isCurrent:()=>true});
+  assert.equal(p.planVersion,v);
+  const input={...a,permitId:p.permitId,boardSnapshot:{id:'5107075373'},boardVerifiedAt:new Date(now0).toISOString()};
+  assert.throws(()=>x.permit.consume({...input,expectedPlanVersion:v+1}));
+  assert.throws(()=>x.permit.consume(input));
+  const fresh=x.permit.issue({state:s,args:a,confirmed:true,isCurrent:()=>true});
+  assert.equal(x.permit.consume({...input,permitId:fresh.permitId}).state.planVersion,v);
+ }
+});

@@ -1,11 +1,12 @@
-// Separate consent from actual V3 creation. A second click is not a write
+// Separate consent from actual versioned creation. A second click is not a write
 // authorization until Monday sends a new complete board snapshot. In memory
 // only, single use, never restored after reload, never minted by a payload flag.
+import {isVersionedPlan} from './versioned-cycle-version.js';
 const ok=(v,m)=>{if(!v)throw Error(m);};
 const uuid=v=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(v);
 const hex=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 const pins=a=>({editorId:a?.editorId,createdBy:a?.createdBy,
- executionId:a?.executionId,boardFingerprint:a?.boardFingerprint,
+ executionId:a?.executionId,expectedPlanVersion:a?.expectedPlanVersion??3,boardFingerprint:a?.boardFingerprint,
  expectedPredecessorSha256:a?.expectedPredecessorSha256});
 const equal=(a,b)=>Object.keys(a).every(k=>a[k]===b[k]);
 export function createPlanningStartPermit({now=()=>Date.now(),
@@ -22,9 +23,10 @@ export function createPlanningStartPermit({now=()=>Date.now(),
    typeof args.boardFingerprint==='string'&&args.boardFingerprint.length>0&&
    hex(args.expectedPredecessorSha256)&&
    state?.readOnly===true&&state.mondayWrites===0&&
-   state.action==='START_NEXT'&&state.planVersion===3&&state.boardMatches===true&&
+   state.action==='START_NEXT'&&isVersionedPlan(state.planVersion)&&
+   state.planVersion===(args.expectedPlanVersion??3)&&state.boardMatches===true&&
    state.predecessorCompletionSha256===args.expectedPredecessorSha256,
-   'A ket kulon V3 inditasi jovahagyas vagy a forras nem igazolt.');
+   'A ket kulon verzios inditasi jovahagyas vagy a forras nem igazolt.');
   const permitId=randomUUID(),issuedAt=now();
   ok(uuid(permitId)&&Number.isFinite(issuedAt),'Invalid planning permit identity.');
   pending={permitId,issuedAt,pins:pins(args),state:structuredClone(state),isCurrent};
@@ -41,7 +43,7 @@ export function createPlanningStartPermit({now=()=>Date.now(),
    args.boardSnapshot?.id==='5107075373'&&Number.isFinite(at)&&
    at>=p.issuedAt-5000&&at<=t+5000&&t>=p.issuedAt&&
    t-p.issuedAt<=lifetimeMs&&t-at<=120000,
-   'A V3 engedely lejart, mar felhasznaltak vagy nincs jovahagyas utani board-ellenorzes.');
+   'A verzios engedely lejart, mar felhasznaltak vagy nincs jovahagyas utani board-ellenorzes.');
   return Object.freeze({state:structuredClone(p.state),uploaderConfirmed:true});
  }
  return Object.freeze({issue,consume,clear:()=>{pending=null;}});

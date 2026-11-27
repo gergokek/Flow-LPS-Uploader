@@ -144,3 +144,10 @@ A felhasználó kétalkalmazásos képernyőképe alapján V3.2 Approved Plan vi
 ## 2026-11-27 – Vx C1/C2
 
 A közös Vn motor és nyers SharePoint-bizonyíték olvasó kész; a V3/V4/V5 teljes szintetikus ciklus 39/39 teszttel igazolt (46012021652). A részletes commitok, CI és a következő C3/D kapcsolati/UI munkacsomag a [MFLOW_DEVELOPMENT_ROADMAP.md](MFLOW_DEVELOPMENT_ROADMAP.md) legutolsó szakaszában található. Új V4 UI és élő TEST release még nincs; a V3 lezárása megőrzendő. Nincs valós projektírás.
+
+
+## 2026-11-27 – C3.1 staged Uploader integration
+- Store factory and connection-scoped Vn reader committed in 6211e730c547f761ed07ec1a8cd6523d332f14a1; Uploader regression run 46017409413 SUCCESS.
+- New internal read-only planning-inspect-vn RPC uses the authenticated project reader, not the V3 projection. It returns startEnabled:false; no V4 creation route is enabled. Existing planning-inspect and V3 writer path remain unchanged.
+- One-use start permit and start flow accept Vn with explicit version binding (legacy omitted version means V3); state comparison pins predecessor/session/DRAFT and checks board freshness again before a start. New V4/V5 and mismatch regressions added. CI pending at commit time.
+- Next: paired Monday read-only client, then dynamic activation and finalization protocol, UI and synthetic browser integration. No production, live TEST board or SharePoint writes; no release marker change.
