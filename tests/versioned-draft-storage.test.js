@@ -145,7 +145,9 @@ test('patch batch integrated: state-selected start -> verified V3.0 -> V3.1 -> r
    return {readOnly:true,mondayWrites:0,verifiedVersionCount:active?3:2,
     boardMatches:true,action:active?'RESUME_DRAFT':'START_NEXT',
     status:active?'ACTIVE':'READY_TO_START',planVersion:3,
-    revision:active?p.revision:null};
+    revision:active?p.revision:null,
+    predecessorCompletionSha256:x.model.source.completionSha256,
+    ...(active?{sessionId:p.claim.document.sessionId,latestDraftSha256:p.latest.receipt.sha256}:{})};
   },storeForVersion:async version=>{
    assert.equal(version,3);return x.store();
   }
