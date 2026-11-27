@@ -4,7 +4,7 @@ import {PILOT_BOARD,pilotAssert as ok,pilotStable as stable,
  pilotSha as sha,pilotHex,pilotUuid} from './v1-pilot-contract.js';
 import {isVersionedPlan,completedSyncStatus} from './versioned-cycle-version.js';
 import {checkVersionedApprovalFile,inspectVersionedApprovalState,
- versionedApprovalCommon} from './versioned-approval-sync-contract.js';
+ versionedApprovalCommon} from './versioned-approval-core.js';
 
 const eq=(a,b)=>stable(a)===stable(b);
 const clone=x=>structuredClone(x);

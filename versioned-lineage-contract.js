@@ -3,8 +3,8 @@
 // from a caller's "verified" flag or serialized model. No live board writes.
 import {PILOT_BOARD,pilotAssert as ok,pilotFingerprint,pilotSha,pilotHex,pilotUuid}
  from './v1-pilot-contract.js';
-import {inspectLegacyV2Predecessor} from './version-successor-contract.js';
-import {buildVersionedApprovalModelFromArtifacts} from './versioned-approval-sync-contract.js';
+import {inspectLegacyV2Predecessor} from './versioned-draft-contract.js';
+import {buildVersionedApprovalModelFromArtifacts} from './versioned-approval-core.js';
 import {inspectVersionedSyncCycle} from './versioned-sync-contract.js';
 import {isVersionedPlan,completedSyncStatus} from './versioned-cycle-version.js';
 
@@ -62,4 +62,12 @@ export async function inspectVersionedPredecessor({predecessor,version,editorId,
  }
  ok(model.version===version,'Incomplete predecessor chain.');
  return model;
+}
+
+export async function inspectVersionedApprovalSource({predecessor,artifacts,
+ planVersion=3,editorId,createdBy,now=Date.now()}){
+ // Rebuild every predecessor cycle, including all historical journals.
+ const model=await inspectVersionedPredecessor({predecessor,version:planVersion,
+  editorId,createdBy,now});
+ return buildVersionedApprovalModelFromArtifacts({model,artifacts,now});
 }
