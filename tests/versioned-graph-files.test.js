@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createVersionedGraphFiles} from '../versioned-graph-files.js';
 const drive='b!example';
-function fixture(kind='Drafts'){
+function fixture(kind='Drafts',version=3){
  const root='https://graph.microsoft.com/v1.0/drives/'+encodeURIComponent(drive);
- const folder='Projects/5107075373/Versions/V0003/'+kind;
+ const folder='Projects/5107075373/Versions/V'+String(version).padStart(4,'0')+'/'+kind;
  const files=new Map(),requests=[],url='https://files.sharepoint.com/v3-draft';
  const response=(status,value)=>({status,ok:status>=200&&status<300,
   json:async()=>value, arrayBuffer:async()=>new TextEncoder().encode(value).buffer});
@@ -48,7 +48,7 @@ function fixture(kind='Drafts'){
   }
   throw Error('Unexpected Graph route: '+rest);
  };
- const api=createVersionedGraphFiles({boardId:'5107075373',version:3,driveId:drive,
+ const api=createVersionedGraphFiles({boardId:'5107075373',version,driveId:drive,
   getAccessToken:async()=> 'token',fetcher});
  return {api,files,requests,folder};
 }
@@ -108,3 +108,31 @@ test('valid V3 ahead and result journal names reach Graph, are create-only and v
  assert.equal(f.requests.filter(x=>x.method==='PUT').length,1);
  }
 });
+
+for(const version of [4,5]){
+ test('V'+version+' Graph DRAFT and journal are pinned to this version, never overwrite another',async()=>{
+  const f=fixture('Drafts',version),name='draft-v'+version+'.json',target=f.folder+'/'+name;
+  const doc={schemaVersion:1,format:'flow-lps-draft',boardId:'5107075373',version:0,
+   session:{planVersion:version}};
+  const other=f.folder.replace('V'+String(version).padStart(4,'0'),'V0003')+'/draft-v3.json';
+  await assert.rejects(f.api.read(other));
+  await assert.rejects(f.api.create(target,{...doc,session:{planVersion:version-1}}));
+  await assert.rejects(f.api.create(f.folder+'/draft-v3.json',doc));
+  assert.equal(f.requests.length,0);
+  assert.equal((await f.api.create(target,doc)).name,name);
+  assert.deepEqual((await f.api.read(target)).value,doc);
+  await assert.rejects(f.api.create(target,doc));
+  assert.equal(f.requests.filter(x=>x.method==='PUT').length,1);
+  const j=fixture('Sync',version);
+  const receipt={schemaVersion:1,boardId:'5107075373',planVersion:version,
+   format:'mflow-versioned-sync-final',status:'V'+version+'_SYNC_COMPLETED',
+   fullBoardReadbackMatches:true,approvedExactMatch:true,remainingTaskCount:0,
+   automaticallyRetryable:false};
+  const p=j.folder+'/sync-v'+version+'-completed.json';
+  await assert.rejects(j.api.create(p,{...receipt,status:'V3_SYNC_COMPLETED'}));
+  await assert.rejects(j.api.create(p,{...receipt,remainingTaskCount:1}));
+  assert.equal(j.requests.length,0);
+  assert.equal((await j.api.create(p,receipt)).name,'sync-v'+version+'-completed.json');
+  assert.equal(j.requests.filter(x=>x.method==='PUT').length,1);
+ });
+}
