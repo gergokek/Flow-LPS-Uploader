@@ -1,5 +1,38 @@
 :root{color-scheme:light;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f5f7fa;color:#183044}body{margin:0}main{max-width:760px;margin:4rem auto;padding:0 1.25rem}h1{font-size:2rem}section{background:white;border:1px solid #dae1eb;border-radius:12px;padding:1.5rem;margin-top:1.5rem}.notice{background:#edf4ff;border-left:4px solid #1769c2;padding:1rem;line-height:1.5}.hint{font-size:.9rem;color:#536879}input{display:block;margin:1rem 0;padding:.6rem;max-width:100%}output{display:block;white-space:pre-wrap;background:#f5f7fa;padding:1rem;border-radius:8px;min-height:1.5rem;line-height:1.5}
+/* Primary TEST workflow remains visible; old controls are collapsed. */
+.test-tag{display:inline-block;font-size:.7rem;font-weight:700;background:#e9f3ec;color:#14683a;border-radius:6px;padding:.2rem .5rem;vertical-align:middle}
+button{cursor:pointer;border-radius:8px;padding:.65rem .9rem;margin:.25rem .35rem .25rem 0;border:1px solid #b7c5d2;background:#f4f8fd;color:#183044;font-weight:600}
+button:disabled{opacity:.45;cursor:not-allowed}
+section#singleDraftSession{border:2px solid #9eb9d5;background:#fbfdff}
+section#singleDraftSession>button{background:#195b94;color:white;border-color:#195b94}
+input[readonly]{background:#f4f6f8;color:#445d70}
+details.legacy-tests:not([open]){background:#fafbfd}
 /* Rarely needed diagnostics are collapsed by default. */
 details.legacy-tests{margin-top:1.5rem;border:1px solid #dae1eb;border-radius:12px;background:#fff;padding:1rem}
 details.legacy-tests>summary{cursor:pointer;font-weight:600;padding:.6rem}
 details.legacy-tests>section{margin-top:1rem}
+
+/* Explicit asynchronous V1 consent, never a native popup. */
+.v1-full-sync-consent{border:2px solid #195b94;background:#f2f7ff}
+#approveV1FullSync{background:#195b94;color:#fff;border-color:#195b94}
+
+#approveV2Session{background:#195b94;color:#fff;border-color:#195b94}
+
+/* V3 start approval is a primary, independent control in the TEST Uploader. */
+#planningStartConsentHost:has(#planningStartConsent){position:sticky;top:.75rem;z-index:5}
+#planningStartConsent{border:2px solid #195b94;background:#eaf3ff;box-shadow:0 7px 24px #18304422}
+#planningStartConsent #approvePlanningStart{background:#195b94;color:#fff;border-color:#195b94}
+#planningStartConsent #cancelPlanningStart{background:#fff}
+
+/* Current TEST acceptance: historical controls stay in the DOM only for
+   legacy module wiring; they are not exposed in the deployed user UI. */
+.current-planning-test details.legacy-tests,
+.current-planning-test #versionStoragePreview,
+.current-planning-test #setupProject,
+.current-planning-test #setupProject~output,
+.current-planning-test #singleDraftSession>button,
+.current-planning-test #singleDraftSession>p,
+.current-planning-test #projectBoardId~details{display:none!important}
+.current-planning-test #approvedV1Sync{border:2px solid #9eb9d5;background:#fbfdff}
+.current-planning-test #inspectApprovedV1:not(:disabled){background:#195b94;color:white;border-color:#195b94}
+.current-planning-test #approvedV1Sync [hidden]{display:none!important}

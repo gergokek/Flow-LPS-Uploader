@@ -1,4 +1,17 @@
+import {requestV2FlowConsent} from './v2-approval-sync-consent.js';
+import {inspectV2Cycle} from './v2-approval-sync-contract.js';
+import {requestV2SessionConsent} from './v2-session-consent-ui.js';
+import {beginV1FullSyncWithConsent} from './full-sync-consent-ui.js';
 import {createSessionDraftAutosave} from './draft-session-autosave.js';
+import {createSingleDraftSessionStore} from './single-draft-session-storage.js';
+import {verifiedVersionedSelection} from './versioned-session-selection.js';
+import {requestPlanningStartConsent} from './planning-start-consent.js';
+import {runPlanningStartFlow} from './planning-start-flow.js';
+import {createPlanningStartPermit} from './planning-start-permit.js';
+import {requestVersionedApprovalConsent} from './versioned-approval-consent-ui.js';
+import {requestVersionedSyncConsent} from './versioned-sync-consent-ui.js';
+import {createImmutableDraftQueue} from './single-draft-write-queue.js';
+import {attachSingleDraftSessionBridge} from './single-draft-session-bridge.js';
 import {attachDraftHandoff} from './draft-handoff-receiver.js';
 import {listStoredDraftVersions,loadStoredDraftVersion} from './sharepoint-version-picker.js';
 import {verifyGraphDraftContent} from './graph-draft-content-verifier.js';
@@ -15,13 +28,20 @@ import {mountFinalSyncReceiptAction} from './sync-final-receipt-ui.js';
 import {mountSingleTaskJournalControl} from './pilot-journal-ui.js';
 import { PublicClientApplication, BrowserCacheLocation } from '@azure/msal-browser';
 import {createProjectStorage} from './project-storage.js';
+import {versionLayout} from './version-workspace-layout.js';
+import {createVersionedGraphFiles} from './versioned-graph-files.js';
+import {summarizeVersionedApprovalInventory,versionedApprovalInventoryMessage} from './versioned-approval-status-ui.js';
 import {validateDraftTransfer} from './draft-transfer-validator.js';
 import {saveDraftTransfer} from './draft-save.js';
 import {verifyDownloadedDraft} from './draft-content-verifier.js';
 import {inspectStoredDraft} from './draft-workspace.js';
 const clientId='3a2cf530-d7a7-4e48-bb90-023d7e293e7a';
 const tenantId='816099a1-2aff-441c-b4ef-9c3a405ac2fa';
-const redirectUri=new URL('./redirect.html',window.location.href).href;
+// The separate /test/ preview uses the existing registered SPA callback.
+// The registered production callback is unchanged, while app assets remain isolated.
+const testUi=import.meta.env.VITE_MFLOW_TEST_PREVIEW==='1';
+if(testUi)document.body.classList.add('current-planning-test');
+const redirectUri=new URL(testUi?'../redirect.html':'./redirect.html',window.location.href).href;
 const button=document.querySelector('#login');
 const status=document.querySelector('#authResult');
 const graphButton=document.querySelector('#checkSharePoint');
@@ -30,6 +50,17 @@ const driveId='b!YBiCN3mDjkCA0zlGakoS1F6FNi-WzO5Ip7eBTLppUVCRBefvaJ27TYm2xryC37M
 const projectBoard=document.querySelector('#projectBoardId');
 const projectSetup=document.querySelector('#setupProject');
 const projectResult=document.querySelector('#projectResult');
+const versionFoldersButton=document.querySelector('#setupVersionFolders');
+const versionFoldersResult=document.querySelector('#versionFoldersResult');
+const v3InventoryButton=document.querySelector('#inspectV3ApprovalInventory');
+const v3InventoryOutput=document.querySelector('#v3ApprovalInventoryResult');
+const createSingleDraft=document.querySelector('#startSingleDraft');
+const resumeSingleDraft=document.querySelector('#resumeSingleDraft');
+const singleDraftOutput=document.querySelector('#singleDraftResult');
+const inspectApprovedV1Button=document.querySelector('#inspectApprovedV1');
+const approvedV1SyncOutput=document.querySelector('#approvedV1SyncResult');
+const planningStartConsentHost=document.querySelector('#planningStartConsentHost');
+const planningStartPermit=createPlanningStartPermit();
 let draftTransferText=null;
 const draftSaveButton=document.querySelector('#saveDraft');
 const draftSaveResult=document.querySelector('#draftSaveResult');
@@ -44,6 +75,14 @@ function showAccount(account){
  graphButton.disabled=!account;
  document.querySelector('#listStoredSyncCheckpoints').disabled=!account||projectBoard.value.trim()!=='5107075373';
  projectSetup.disabled=!account;
+ versionFoldersButton.disabled=!account||projectBoard.value.trim()!=='5107075373';
+ v3InventoryButton.disabled=!account||projectBoard.value.trim()!=='5107075373'||!testUi;
+ // The TEST session may only be started from the authenticated Monday opener.
+ const connected=!!singleBridge?.active&&singleBridge.ready();
+ createSingleDraft.disabled=testUi||!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
+ resumeSingleDraft.disabled=testUi||!account||!connected||!!singleSession||projectBoard.value.trim()!=='5107075373';
+ inspectApprovedV1Button.disabled=!account||!connected||!!singleSession||!!singleSyncSelected||syncInspectBusy||projectBoard.value.trim()!=='5107075373';
+ inspectApprovedV1Button.hidden=testUi&&!!singleSyncSelected;
  draftSaveButton.disabled=!account||!draftTransferText;
  editedSave.disabled=!account||!editedDraftText;
  if(!account){status.textContent='Nincs aktív Microsoft-bejelentkezés. A próba nem kér SharePoint-jogosultságot.';return;}
@@ -66,7 +105,7 @@ button.addEventListener('click',async()=>{
  button.disabled=true;
  status.textContent='Microsoft-bejelentkezési ablak megnyitása...';
  try{
-  const response=await msal.loginPopup({scopes:['openid','profile'],redirectUri,prompt:'select_account',overrideInteractionInProgress:retryPendingInteraction});
+  const response=await msal.loginPopup({scopes:testUi?['openid','profile','User.Read']:['openid','profile'],redirectUri,prompt:'select_account',overrideInteractionInProgress:retryPendingInteraction});
   retryPendingInteraction=false;
   button.textContent='Bejelentkezés Microsoft-fiókkal';
   showAccount(response.account);
@@ -140,6 +179,32 @@ projectSetup.addEventListener('click',async()=>{
  }catch(err){projectResult.textContent='A projekt tarhely elokeszitese sikertelen: '+(err?.message||'ismeretlen hiba');}
  finally{projectBusy=false;projectSetup.disabled=!msal.getAllAccounts().length;}
 });
+// This intentionally does not start V3 or write a manifest: folders only.
+versionFoldersButton.addEventListener('click',async()=>{
+ if(projectBusy)return;
+ const boardId=projectBoard.value.trim();
+ if(boardId!=='5107075373')throw Error('Version folder provisioning is TEST-only.');
+ const account=msal.getAllAccounts()[0];
+ if(!account){versionFoldersResult.textContent='Microsoft-bejelentkezes szukseges.';return;}
+ const layout=versionLayout(boardId,3);
+ if(!window.confirm('Csak az ures '+layout.versionRoot+' es 4 almappaja jon letre. A V1/V2 fajlokat nem mozgatjuk, V3 munkamenetet nem inditunk. Folytatod?'))return;
+ projectBusy=true;versionFoldersButton.disabled=true;projectSetup.disabled=true;
+ versionFoldersResult.textContent='V3 SharePoint mappak ellenorzese...';
+ try{
+  const request={scopes:['https://graph.microsoft.com/Sites.Selected'],account,redirectUri};
+  let auth;try{auth=await msal.acquireTokenSilent(request);}
+  catch(err){if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(err?.errorCode))throw err;
+   auth=await msal.acquireTokenPopup(request);}
+  if(msal.getAllAccounts()[0]?.homeAccountId!==account.homeAccountId)
+   throw Error('Microsoft-fiok megvaltozott.');
+  const store=createProjectStorage({driveId,getAccessToken:async()=>auth.accessToken});
+  const proof=await store.ensureVersion(boardId,3);
+  versionFoldersResult.textContent='V3 mappak elokeszitve: '+proof.path+'\\nAlmappak: '+proof.folders.join(', ')+
+   '\\nV1/V2 fajlok erintetlenek; V3 DRAFT nincs elinditva; Monday-iras: 0.';
+ }catch(error){versionFoldersResult.textContent='V3 mappaellenorzes sikertelen: '+String(error?.message||error);}
+ finally{projectBusy=false;versionFoldersButton.disabled=!msal.getAllAccounts().length;
+  projectSetup.disabled=!msal.getAllAccounts().length;}
+});
 document.querySelector('#draftTransferFile').addEventListener('change',async event=>{
  draftTransferText=null;draftSaveButton.disabled=true;draftSaveResult.textContent='Nincs DRAFT feltoltes inditva.';
  const output=document.querySelector('#draftTransferResult');
@@ -206,6 +271,724 @@ const pickerToken=async()=>{
   return (await msal.acquireTokenPopup(request)).accessToken;
  }
 };
+// Read-only Entra /me proof requires the standard delegated User.Read scope.
+// TEST MSAL login requests it on a direct user click, before any approval.
+const pickerMeToken=async()=>{
+ const account=msal.getAllAccounts()[0];
+ if(!account)throw Error('Microsoft bejelentkezes szukseges.');
+ const request={scopes:['User.Read'],account,redirectUri};
+ try{return (await msal.acquireTokenSilent(request)).accessToken;}
+ catch(e){
+  if(!['interaction_required','consent_required','login_required','invalid_grant'].includes(e?.errorCode))
+   throw e;
+  return (await msal.acquireTokenPopup(request)).accessToken;
+ }
+};
+// V3 version inventory – read-only, not an approval or sync authorization.
+let v3InventoryBusy=false;
+v3InventoryButton.addEventListener('click',async()=>{
+ if(v3InventoryBusy||!testUi)return;
+ const current=msal.getAllAccounts()[0],boardId=projectBoard.value.trim();
+ if(boardId!=='5107075373'||!current){
+  v3InventoryOutput.textContent='Microsoft-fiok es TEST board szukseges.';return;
+ }
+ const accountId=current.homeAccountId,tenant=current.tenantId;
+ const assertCurrent=()=>projectBoard.value.trim()===boardId&&
+  msal.getAllAccounts()[0]?.homeAccountId===accountId&&
+  msal.getAllAccounts()[0]?.tenantId===tenant;
+ v3InventoryBusy=true;v3InventoryButton.disabled=true;
+ v3InventoryOutput.textContent='V3 SharePoint fajllistak ujraolvasasa (csak olvasas)...';
+ try{
+  const graph=createVersionedGraphFiles({boardId,version:3,driveId,
+   getAccessToken:pickerToken,assertCurrent});
+  const layout=versionLayout(boardId,3);
+  const [sessionFiles,draftFiles,approvedFiles,syncFiles]=await Promise.all([
+   graph.list(layout.session),graph.list(layout.drafts),
+   graph.list(layout.approved),graph.list(layout.sync)]);
+  if(!assertCurrent())throw Error('Microsoft-fiok megvaltozott.');
+  const result=summarizeVersionedApprovalInventory({boardId,planVersion:3,
+   sessionFiles,draftFiles,approvedFiles,syncFiles});
+  v3InventoryOutput.textContent=versionedApprovalInventoryMessage(result);
+ }catch(error){
+  v3InventoryOutput.textContent='V3 ellenorzes nem teljes: '+String(error?.message||error)+
+   '\nNincs igazolt jovahagyas vagy szinkron; nincs ujraprobalasbol eredő iras.';
+ }finally{
+  v3InventoryBusy=false;showAccount(msal.getAllAccounts()[0]||null);
+ }
+});
+// New, isolated one-session workflow. No legacy autosave coalescing and no
+// direct Monday writes. Existing legacy tests remain available separately.
+let singleSession=null,singleSessionQueue=null,singleStore=null,singleBusy=false;
+let singleSyncStore=null,singleSyncSelected=null,syncInspectBusy=false,syncPrepareBlocked=false;
+const singleBridge=attachSingleDraftSessionBridge({onSaveRevision:async({draft,sessionId})=>{
+ if(!singleSession||!singleSessionQueue||singleSession.sessionId!==sessionId||
+    singleSessionQueue.state().blocked||
+    draft.version!==singleSessionQueue.state().nextRevision+1)
+  throw Error('A DRAFT-munkamenet módosítási sora nem érvényes.');
+ if(!singleSessionQueue.enqueue(draft))
+  throw Error('A DRAFT-módosítás nem került a mentési sorba.');
+ await singleSessionQueue.idle(); // Verified Graph content/eTag, not an ACK alone.
+ if(singleSession?.revision!==draft.version)
+  throw Error('A SharePoint-mentés verziója eltér.');
+ return singleSession;
+},onApprovePlan:async request=>{
+ const account=msal.getAllAccounts()[0];
+ if(!singleStore||!singleSession||singleSession.planVersion!==1||!singleSessionQueue||
+    !account||!singleSessionQueue.state().canApprove||
+    singleSession.status!=='SAVED'&&singleSession.status!=='ACTIVE'||
+    singleSession.sessionId!==request.expectedSessionId||
+    singleSession.revision!==request.expectedRevision||
+    singleSession.receipt?.sha256!==request.expectedSha256)
+  throw Error('A DRAFT jóváhagyása nem indítható; előbb ellenőrizd a mentett verziót.');
+ // Store independently re-reads all Graph files and verifies /me.
+ const result=await singleStore.approve({...request,
+  createdBy:account.homeAccountId});
+ singleSessionQueue.stop();
+ singleSession={...singleSession,status:'APPROVED_V1'};
+ singleDraftOutput.textContent=
+  'Approved Plan V1 mentve és visszaellenőrizve.\n'+
+  'Forrás: V1.'+result.revision+' / '+result.finalDraftSha256+'\n'+
+  'SharePoint: '+result.approvedPlan.path+'\n'+
+  'Approved SHA-256: '+result.approvedPlan.sha256+'\n'+
+  'Monday-board módosítás: 0.\n'+
+  'Szinkronizáció külön későbbi művelet.';
+ return result;
+},onPrepareSync:async request=>{
+ const account=msal.getAllAccounts()[0];
+ if(!account||!singleSyncStore||!singleSyncSelected||syncPrepareBlocked||
+    request.expectedApprovedSha256!==singleSyncSelected.receipt.sha256||
+    request.expectedSessionId!==singleSyncSelected.sessionId||
+    request.expectedRevision!==singleSyncSelected.revision)
+  throw Error('A jóváhagyott V1 szinkron előkészítése nem hitelesíthető.');
+ // Once a SharePoint create is attempted, an uncertain outcome is terminal.
+ syncPrepareBlocked=true;
+ const result=await singleSyncStore.prepareApprovedSync({
+  expectedApprovedSha256:request.expectedApprovedSha256,
+  createdBy:account.homeAccountId,editorId:request.editorId,
+  boardVerifiedAt:request.boardVerifiedAt,
+  boardFingerprintSha256:request.boardFingerprintSha256});
+ approvedV1SyncOutput.textContent='V1 szinkron 0-írásos checkpoint visszaellenőrizve.\n'+
+  'Fájl: '+result.checkpoint.path+'\n'+
+  'SHA-256: '+result.checkpoint.sha256+'\n'+
+  'Monday-board módosítás: 0. A következő írás külön megerősítést igényel.';
+ return result;
+},onVersionedApproval:async request=>{
+ const account=msal.getAllAccounts()[0],createdBy=account?.homeAccountId;
+ const store=singleSyncStore,selected=singleSession,
+  queue=singleSessionQueue,opener=window.opener;
+ const current=()=>testUi===true&&!!account&&!!store?.v3Approval&&
+  store===singleSyncStore&&queue===singleSessionQueue&&
+  selected===singleSession&&selected?.planVersion===3&&
+  selected.sessionId===request.expectedSessionId&&
+  selected.revision===request.expectedRevision&&
+  selected.receipt?.sha256===request.expectedDraftSha256&&
+  queue?.state().canApprove===true&&
+  projectBoard.value.trim()==='5107075373'&&
+  msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+  msal.getAllAccounts()[0]?.tenantId===account.tenantId&&
+  singleBridge.active&&singleBridge.ready()&&opener&&!opener.closed&&
+  window.opener===opener;
+ if(!current()||!/^[0-9]+$/.test(request.editorId||''))
+  throw Error('A V3 DRAFT vagy a ket alkalmazas kapcsolata megvaltozott.');
+ const args={...request,editorId:request.editorId,createdBy};
+ const report=await store.v3Approval.inspect(args);
+ if(!current()||report.sessionId!==selected.sessionId||
+    report.revision!==selected.revision||
+    report.sourceDraftSha256!==selected.receipt.sha256)
+  throw Error('V3 munkamenet megvaltozott a teljes forrasellenorzes kozben.');
+ const summarize=r=>({status:r.state.status,boardId:r.boardId,
+  planVersion:r.planVersion,sessionId:r.sessionId,revision:r.revision,
+  sourceDraftSha256:r.sourceDraftSha256,
+  generationSha256:r.generationSha256,
+  predecessorCompletionSha256:r.predecessorCompletionSha256,
+  sourceBoardSha256:r.sourceBoardSha256,
+  changedTaskCount:r.changedTaskCount,fieldChangeCount:r.fieldChangeCount,
+  taskCount:r.taskCount,readOnly:true,mondayWrites:0,mondaySyncAllowed:false,
+  approvedSha256:r.approved?.receipt?.sha256||null,
+  approvalReceiptSha256:r.approval?.receipt?.sha256||null});
+ if(request.action==='inspect'){
+  approvedV1SyncOutput.textContent='V3.'+report.revision+
+   ' DRAFT teljes SharePoint ellenorzese: '+report.changedTaskCount+
+   ' feladat, '+report.fieldChangeCount+' mezo. Monday iras: 0.';
+  return summarize(report);
+ }
+ if(request.action!=='approve'||report.state.status!=='DRAFT_READY'||
+    request.mondayConfirmed!==true||
+    request.expectedGenerationSha256!==report.generationSha256||
+    request.expectedPredecessorSha256!==report.predecessorCompletionSha256||
+    request.boardFingerprintSha256!==report.sourceBoardSha256||
+    request.boardSnapshot?.id!=='5107075373')
+  throw Error('Nincs friss, egyezo V3 jovahagyasi engedely.');
+ const summary=summarize(report);
+ const accepted=await requestVersionedApprovalConsent({
+  host:approvedV1SyncOutput.parentElement,summary,
+  isCurrent:current});
+ if(!accepted||!current())
+  throw Error('A V3 jovahagyast az Uploader nem erositette meg.');
+ const done=await store.v3Approval.approve({...args,
+  mondayConfirmed:true,uploaderConfirmed:true,userConfirmed:true});
+ if(!current()||!['READY_TO_SYNC','READY_TO_CLOSE'].includes(done.state.status)||
+    done.sourceDraftSha256!==selected.receipt.sha256)
+  throw Error('A V3 Approved Plan mentese nem igazolt.');
+ queue.stop();
+ singleSession={...selected,status:'APPROVED_V3'};
+ approvedV1SyncOutput.textContent='Approved V3 SharePoint nyugtak ellenorizve. '+
+  'Allapot: '+done.state.status+'. Monday-iras: 0. '+ 
+  'A V3 szinkronmotor meg nem aktiv.';
+ return summarize(done);
+},onVersionedSync:async request=>{
+ const account=msal.getAllAccounts()[0],store=singleSyncStore,
+  selected=singleSession,opener=window.opener;
+ const createdBy=account?.homeAccountId;
+ const current=()=>testUi===true&&!!account&&!!store?.v3Sync&&
+  store===singleSyncStore&&selected===singleSession&&
+  selected?.planVersion===3&&selected.status==='APPROVED_V3'&&
+  selected.sessionId===request.expectedSessionId&&
+  selected.revision===request.expectedRevision&&
+  selected.receipt?.sha256===request.expectedDraftSha256&&
+  projectBoard.value.trim()==='5107075373'&&
+  singleBridge.active&&singleBridge.ready()&&opener&&!opener.closed&&
+  opener===window.opener&&
+  singleBridge.v3Approved()?.approvedSha256===request.expectedApprovedSha256&&
+  singleBridge.v3Approved()?.approvalReceiptSha256===request.expectedApprovalReceiptSha256&&
+  msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+  msal.getAllAccounts()[0]?.tenantId===account.tenantId;
+ if(!current()||!/^\d+$/.test(request.editorId||''))
+  throw Error('A V3 szinkronkapcsolat vagy az Approved Plan megvaltozott.');
+ const args={...request.payload,editorId:request.editorId,createdBy};
+ const flow=store.v3Sync;
+ if(request.action==='inspect'){
+  const r=await flow.inspect(args);
+  if(!current()||r.state.model.sessionId!==selected.sessionId||
+     r.state.approvedSha256!==request.expectedApprovedSha256)
+   throw Error('A V3 naplok nem a kapcsolt Approved Planhez tartoznak.');
+  approvedV1SyncOutput.textContent='V3 szinkron naplok: '+r.state.status+
+   '; igazolt: '+r.state.verifiedTaskCount+
+   '; hatralevo: '+r.state.remainingTaskCount+'.';
+  return r;
+ }
+ if(request.action==='begin'){
+  const report=await flow.inspect(args),state=report.state;
+  if(!current()||!['READY_TO_SYNC','READY_TO_CLOSE'].includes(state.status)||
+     state.approvedSha256!==request.expectedApprovedSha256||
+     state.approvalReceiptSha256!==request.expectedApprovalReceiptSha256||
+     args.mondayConfirmed!==true||
+     args.expectedGenerationSha256!==state.generationSha256)
+   throw Error('Nem igazolt a V3 szinkron eloallitott engedelye.');
+  approvedV1SyncOutput.textContent='V3 teljes TEST visszairas Uploader-jovahagyasra var.';
+  const accepted=await requestVersionedSyncConsent({
+   host:approvedV1SyncOutput.parentElement,state,isCurrent:current});
+  if(!accepted||!current())
+   throw Error('V3 szinkron leallitva az Uploader megerosites elott.');
+  return flow.begin({...args,mondayConfirmed:true,
+   uploaderConfirmed:true,userConfirmed:true});
+ }
+ if(request.action==='v4-ready'){
+  const ready=await flow.readiness(args);
+  if(!current()||ready.status!=='V4_READY_TO_START'||ready.startEnabled!==false)
+   throw Error('A V4 elozmeny nem hiteles.');
+  approvedV1SyncOutput.textContent='V3 teljes szinkron igazolt. V4 forras: kesz. '+
+   'Uj terv inditasa meg kulon fejlesztes.';
+  return ready;
+ }
+ if(!['ahead','result','finish'].includes(request.action))
+  throw Error('Ismeretlen V3 szinkronmuvelet.');
+ const r=await flow[request.action](args);
+ if(!current())throw Error('Megszakadt V3 szinkronkapcsolat.');
+ approvedV1SyncOutput.textContent=request.action==='ahead'?
+  'V3 elonaplo igazolt: '+r.document.taskId+'. Egy irasi kiserlet engedelyezett.':
+  request.action==='result'?'V3 visszaolvasas naplo: '+r.document.status+'.':
+  'V3 TELJES SZINKRON LEZARVA. SHA-256: '+r.receipt.sha256+'.';
+ return r;
+},onPilotRequest:async request=>{
+ const account=msal.getAllAccounts()[0];
+ if(!account||!singleSyncStore||!singleSyncSelected||
+    request.expectedApprovedSha256!==singleSyncSelected.receipt.sha256||
+    request.expectedSessionId!==singleSyncSelected.sessionId||
+    request.expectedRevision!==singleSyncSelected.revision)
+  throw Error('V1 pilot: nincs ellenorzott Approved V1 kapcsolat.');
+ const payload=request.payload||{},createdBy=account.homeAccountId;
+ if(request.action==='planning-open-v3-approved'){
+  const selected=singleSyncSelected,store=singleSyncStore,opener=window.opener;
+  const isCurrent=()=>testUi===true&&store===singleSyncStore&&
+   selected===singleSyncSelected&&!singleSession&&!singleSessionQueue&&
+   singleBridge.active&&singleBridge.ready()&&opener&&!opener.closed&&
+   window.opener===opener&&projectBoard.value.trim()==='5107075373'&&
+   msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId;
+  if(!isCurrent()||!/^\d+$/.test(payload.editorId||''))
+   throw Error('Nincs biztonsagos Approved V3 ujranyitasi kapcsolat.');
+  const reviewed=await store.v3Sync.inspect({createdBy,editorId:payload.editorId});
+  const state=reviewed.state,m=state.model;
+  if(!isCurrent()||m?.version!==3||m.boardId!=='5107075373'||
+     !['READY_TO_SYNC','READY_TO_CLOSE','MANUAL_REVIEW_REQUIRED',
+       'V3_SYNC_COMPLETED'].includes(state.status)||
+     !/^[a-f0-9]{64}$/.test(state.approvedSha256||'')||
+     !/^[a-f0-9]{64}$/.test(state.approvalReceiptSha256||'')||
+     m.draftReceipt?.sha256!==m.sourceDraftSha256)
+   throw Error('A V3 Approved Plan vagy szinkronnaplo nem bizonyitott.');
+  const handoff={status:'APPROVED_V3',boardId:'5107075373',
+   planVersion:3,sessionId:m.sessionId,revision:m.revision,
+   sourceDraftSha256:m.sourceDraftSha256,draft:m.draft,
+   receipt:m.draftReceipt,approvedSha256:state.approvedSha256,
+   approvalReceiptSha256:state.approvalReceiptSha256,
+   syncStatus:state.status,verifiedTaskCount:state.verifiedTaskCount,
+   remainingTaskCount:state.remainingTaskCount,
+   expectedBoardSha256:state.expectedBoardSha256,
+   createdBy:m.createdBy,mondayWrites:0};
+  if(!isCurrent())throw Error('Az Approved V3 ujranyitasa kozben fiokvaltas tortent.');
+  singleSession={...handoff,receipt:handoff.receipt};
+  approvedV1SyncOutput.textContent='Jovahagyott V3.'+m.revision+
+   ' terv ujranyitva: '+state.status+'. Ez nem DRAFT szerkesztes. '+
+   'Igazolt naplok: '+state.verifiedTaskCount+'.';
+  showAccount(account);
+  return handoff;
+ }
+ if(request.action==='planning-inspect-vn'){
+  // Staged read-only route, not a new start trigger. The existing V3 UI and
+  // consent/write routes remain unchanged until the paired client is ready.
+  const selected=singleSyncSelected,store=singleSyncStore;
+  const current=()=>testUi===true&&singleSyncSelected===selected&&singleSyncStore===store&&
+   projectBoard.value.trim()==='5107075373'&&singleBridge.active&&singleBridge.ready()&&
+   msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId;
+  if(!current())throw Error('A Vn projektkapcsolat megvaltozott.');
+  const state=await store.inspectVersionedPlanningState({createdBy,editorId:payload.editorId,
+   boardFingerprint:payload.boardFingerprint});
+  if(!current()||state?.readOnly!==true||state.mondayWrites!==0||state.startEnabled!==false)
+   throw Error('A Vn projektallapot nem igazolt.');
+  return state;
+ }
+ if(request.action==='planning-inspect'){
+  const selected=singleSyncSelected,store=singleSyncStore;
+  if(projectBoard.value.trim()!=='5107075373'||!singleBridge.active||
+     !singleBridge.ready()||singleSyncSelected!==selected)
+   throw Error('A tervallapot ellenorzes kapcsolata megszakadt.');
+  const labels={
+   V0_APPROVED:'V0 Approved Plan es SHA/eTag ellenorzese',
+   V1_SYNC_JOURNAL:'V1 teljes SharePoint szinkronnaplo ellenorzese',
+   V1_SYNC_PROOF:'V1 zaro- es board-bizonyitek ellenorzese',
+   V2_SYNC_JOURNAL:'V2 teljes SharePoint szinkronnaplo ellenorzese',
+   V2_SYNC_PROOF:'V2 vegnyugta es teljes board bizonyiteka',
+   V1_SESSION_CLAIM:'Eredeti V1 munkamenet-azonosito ellenorzese',
+   VERSION_FOLDER_CATALOG:'SharePoint verziofak es V3 mappak listazasa',
+   V3_SESSION_CHAIN:'V3 teljes munkamenet es DRAFT nyugtalanc ellenorzese',
+   PROJECT_LINEAGE:'V0-V3 project lineage es aktualis board osszevetese'
+  };
+  approvedV1SyncOutput.textContent='Projektterv: csak olvasasi ellenorzes indul. Monday-iras: 0.';
+  let phase='NOT_STARTED';
+  try{
+   const state=await store.inspectPlanningState({createdBy,
+    editorId:payload.editorId,boardFingerprint:payload.boardFingerprint,
+    onPhase:next=>{
+     phase=next;
+     approvedV1SyncOutput.textContent='Projektterv ellenorzes ['+next+']: '+
+      (labels[next]||'Ellenorzes')+
+      '. Csak olvasas; Monday-iras: 0. Ne indits uj tervet az eredmeny elott.';
+    }});
+   if(singleSyncSelected!==selected||singleSyncStore!==store||
+      msal.getAllAccounts()[0]?.homeAccountId!==createdBy)
+    throw Error('A Microsoft-fiok vagy SharePoint kapcsolat megvaltozott.');
+   approvedV1SyncOutput.textContent='Projektallapot: '+state.status+
+    '; kovetkezo muvelet: '+state.action+'; verzio: '+(state.planVersion??'-')+
+    '; letezo verzio: '+state.verifiedVersionCount+'; Monday iras: 0.';
+   return state;
+  }catch(error){
+   approvedV1SyncOutput.textContent='TERVELLENORZES MEGALLT ['+phase+'] (csak olvasas): '+
+    String(error?.message||error).slice(0,460)+
+    '\nA korabbi V3 inditas sikeressege nem igazolt. Ne indits uj V3-at; ellenorizd kulon a V3 fajllistat.';
+   throw error;
+  }
+ }
+ if(['planning-consent','planning-begin'].includes(request.action)){
+  const store=singleSyncStore,linked=singleSyncSelected,opener=window.opener;
+  const current=()=>store===singleSyncStore&&linked===singleSyncSelected&&
+   !singleSession&&!singleSessionQueue&&
+   projectBoard.value.trim()==='5107075373'&&singleBridge.active&&
+   singleBridge.ready()&&msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId&&
+   opener&&opener===window.opener&&!opener.closed;
+  if(!current()||payload.mondayConfirmed!==true)
+   throw Error('A Monday tervinditasi jovahagyasa vagy kapcsolata hianyzik.');
+  const args={...payload,createdBy,editorId:payload.editorId};
+  if(!testUi)throw Error('A V3 tervinditas csak a TEST Uploaderben lehetseges.');
+  if(request.action==='planning-consent'){
+   planningStartPermit.clear();
+   approvedV1SyncOutput.textContent='V3.0: az inditas forrasanak ellenorzese (0 iras).';
+   try{
+    const state=await store.planningActions.inspect(args);
+    if(!current()||state.action!=='START_NEXT'||state.boardMatches!==true||
+      state.planVersion!==3||
+      state.predecessorCompletionSha256!==payload.expectedPredecessorSha256||
+      state.verifiedVersionCount!==state.planVersion-1)
+     throw Error('Nem teljes vagy megvaltozott a V2 utani projektallapot.');
+    if(!planningStartConsentHost)
+     throw Error('A kulon Uploader-jovahagyas felulete nem erheto el.');
+    approvedV1SyncOutput.textContent='V3.0: kulon Uploader-jovahagyas szukseges. SharePoint-iras meg nem indult.';
+    const confirmed=await requestPlanningStartConsent({
+     host:planningStartConsentHost,state,isCurrent:current});
+    const permit=planningStartPermit.issue({state,args,confirmed,isCurrent:current});
+    approvedV1SyncOutput.textContent='Mindket jovahagyas megtortent. A Monday most friss teljes board-ellenorzest vegez. Meg nem indult SharePoint-iras.';
+    return permit;
+   }catch(error){
+    planningStartPermit.clear();
+    approvedV1SyncOutput.textContent='A tervinditasi jovahagyas nem igazolt: '+String(error?.message||error)+'. Meg nem indult SharePoint-iras.';
+    throw error;
+   }
+  }
+  let authorization;
+  try{authorization=planningStartPermit.consume(args);}
+  catch(error){
+   approvedV1SyncOutput.textContent='Az inditasi engedely nem ervenyes: '+String(error?.message||error)+'. Nem indult SharePoint-iras.';
+   throw error;
+  }
+  const state=authorization.state;
+  const phaseMessage={
+   WAITING_FOR_UPLOADER_CONFIRMATION:'V3.0: az egyszeri ketoldali engedely ellenorzese. SharePoint-iras meg nem indult.',
+   UPLOADER_CONFIRMED:'V3.0: mindket jovahagyas megerositve. Uj tervinditasi ellenorzes kovetkezik.',
+   CREATING_OR_VERIFYING_SHAREPOINT:'V3.0: SharePoint V3 mappak es munkamenetfajlok letrehozasa / ellenorzese folyamatban. Az Uploader es Monday ablakot tartsd nyitva.',
+   READBACK_OF_V3_RECEIPTS:'V3.0: SharePoint fajlok letrehozasi valasza megerkezett; teljes DRAFT es SHA/eTag visszaellenorzes.',
+   ACTIVATING_MONDAY_EDITOR:'V3.0: SharePoint DRAFT visszaellenorizve, atadas a Monday szerkesztonek.',
+   ACTIVE_V3:'ACTIVE V3.0: a DRAFT hitelesitve es a Mondaynek atadva. Monday-iras: 0.',
+   CANCELLED:'V3.0 inditas megszakitva a SharePoint letrehozasa elott.'
+  };
+  let failedStage=null;
+  let selected;
+  try{
+   selected=await runPlanningStartFlow({
+    inspected:state,isCurrent:current,
+    // Explicit Uploader click already took place in planning-consent; consume
+    // accepts it exactly once, only with the fresh post-consent board proof.
+    consent:async()=>authorization.uploaderConfirmed,
+    execute:()=>store.planningActions.execute({...args,
+     mondayConfirmed:true,uploaderConfirmed:true}),
+    select:run=>verifiedVersionedSelection(run.report),
+    attach:async verified=>{
+     if(!current()||verified.planVersion!==state.planVersion)
+      throw Error('A V3 DRAFT atadas kapcsolata megvaltozott.');
+     installV2EditorQueue({append:work=>store.nextVersion.append({...work,
+      createdBy,editorId:payload.editorId})},verified);
+    },
+    onPhase:(phase,details)=>{
+     if(phase==='FAILED'){
+      failedStage=details;
+      approvedV1SyncOutput.textContent='V3.0 inditas nem igazolt. Sikertelen fazis: '+
+       details?.phase+'. '+details?.message+
+       (details?.writeMayHaveStarted?
+        '\nSharePoint-fajlok mar letrejohettek. Ne ismeteld az inditast! Friss, csak olvaso tervellenorzes szukseges.':
+        '\nEzen a ponton nem indult SharePoint-fajlletrehozas.');
+     }else approvedV1SyncOutput.textContent=phaseMessage[phase]||phase;
+    }
+   });
+  }catch(error){
+   // The planning gate deliberately cannot automatically retry a create.
+   // Keep the failed stage visible in Uploader, and return the error to Monday.
+   if(!failedStage)approvedV1SyncOutput.textContent=
+    'A V3 inditas nem sikerult: '+String(error?.message||error).slice(0,350);
+   throw error;
+  }
+  approvedV1SyncOutput.textContent='ACTIVE '+selected.versionLabel+
+   ' DRAFT letrehozva es SharePoint SHA/eTag nyugtakkal visszaellenorizve. '+
+   'Atadva a Monday szerkesztonek. Monday-iras: 0.';
+  return selected;
+ }
+ if(request.action==='planning-open'){
+  const store=singleSyncStore,linked=singleSyncSelected,opener=window.opener,
+   args={createdBy,editorId:payload.editorId,boardFingerprint:payload.boardFingerprint};
+  const current=()=>store===singleSyncStore&&linked===singleSyncSelected&&
+   projectBoard.value.trim()==='5107075373'&&singleBridge.active&&singleBridge.ready()&&
+   msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId&&
+   opener&&opener===window.opener&&!opener.closed;
+  if(!current()||singleSession||singleSessionQueue)
+   throw Error('Mar van kivalasztott DRAFT vagy elavult a kapcsolat.');
+  const state=await store.planningActions.inspect(args);
+  if(!current()||state.action!=='RESUME_DRAFT'||state.planVersion!==3)
+   throw Error('Nincs igazolt, folytathato V3 DRAFT.');
+  const report=await store.nextVersion.inspect(args);
+  if(!current())throw Error('A SharePoint kapcsolat megvaltozott.');
+  const selected=await verifiedVersionedSelection(report);
+  if(selected.planVersion!==state.planVersion||selected.revision!==state.revision)
+   throw Error('A V3 allapot megvaltozott a kivalasztas kozben.');
+  const checked=await store.planningActions.inspect(args);
+  if(!current()||checked.action!==state.action||checked.planVersion!==state.planVersion||
+     checked.revision!==state.revision)
+   throw Error('A V3 munkamenet a megnyitas kozben megvaltozott.');
+  const bound={append:work=>store.nextVersion.append({...work,createdBy,
+   editorId:payload.editorId})};
+  installV2EditorQueue(bound,selected);
+  approvedV1SyncOutput.textContent='Igazolt '+selected.versionLabel+
+   ' DRAFT ujranyitva: '+selected.receipt.name+'. Monday-iras: 0.';
+  return selected;
+ }
+ if(request.action.startsWith('v2-flow-')){
+  const flow=singleSyncStore.v2Flow,action=request.action.slice(8),args={...payload,createdBy,requestId:request.requestId};
+  const selected=singleSyncSelected,store=singleSyncStore,opener=window.opener;
+  const isCurrent=()=>singleSyncSelected===selected&&singleSyncStore===store&&
+   projectBoard.value.trim()==='5107075373'&&msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+   msal.getAllAccounts()[0]?.tenantId===account.tenantId&&singleBridge.active&&singleBridge.ready()&&
+   singleBridge.syncSession()?.sha256===request.expectedApprovedSha256&&
+   singleBridge.syncSession()?.sessionId===request.expectedSessionId&&
+   singleBridge.syncSession()?.revision===request.expectedRevision&&!!opener&&window.opener===opener&&!opener.closed;
+  if(!isCurrent())throw Error('A V2 kapcsolat megvaltozott.');
+  if(action==='inspect'){
+   approvedV1SyncOutput.textContent='V2 DRAFT, jovahagyas es naplok visszaellenorzese. Csak olvasas.';
+   const report=await flow.inspect(args),state=await inspectV2Cycle(report,args.editorId,createdBy);
+   approvedV1SyncOutput.textContent='V2 ellenorzes: '+state.status+'. Modosult: '+state.model.changedTaskCount+
+    ', igazolt: '+state.verifiedTaskCount+', hatralevo: '+state.remainingTaskCount+'.';return report;
+  }
+  if(action==='begin'){
+   const report=await flow.inspect(args),state=await inspectV2Cycle(report,args.editorId,createdBy);
+   if(state.generationSha256!==args.generationSha256||!isCurrent())throw Error('A V2 elonezet megvaltozott.');
+   approvedV1SyncOutput.textContent='V2 jovahagyas es teljes visszairas a lenti gombra var. Meg nem indult uj iras.';
+   if(!await requestV2FlowConsent({host:approvedV1SyncOutput.parentElement,state,isCurrent})||!isCurrent())
+    throw Error('A V2 jovahagyas megszakitva. Ebben a futasban nem indult iras.');
+   return flow.begin({...args,userConfirmed:true});
+  }
+  if(!['approve','ahead','result','finish'].includes(action))throw Error('Ismeretlen V2 szinkronmuvelet.');
+  const result=await flow[action](args);
+  approvedV1SyncOutput.textContent=action==='finish'?'TELJES V2 SZINKRON LEZARVA. '+
+   result.document.verifiedTaskCount+' modosult feladat igazolva. Zaronyugta: '+result.receipt.name+'. V3 nem indult.':
+   action==='approve'?'Approved V2 mentve es visszaellenorizve. A V2 DRAFT zarolt; a teljes szinkron folytatodik.':
+   action==='ahead'?'V2 elonaplo igazolva. Feladat: '+result.document.taskId:
+   'V2 eredmenynaplo igazolva: '+result.document.status;
+  return result;
+ }
+ if(request.action.startsWith('v2-')){
+  const next=singleSyncStore.nextSession,action=request.action.slice(3);
+  const args={...payload,createdBy,requestId:request.requestId};
+  if(action==='inspect'){
+   approvedV1SyncOutput.textContent='V1 lezaro nyugta es teljes naplolanc, majd V2 munkamenet ellenorzese. Csak olvasas.';
+   return next.inspect(args);
+  }
+  if(action==='begin'){
+   const selected=singleSyncSelected,store=singleSyncStore,opener=window.opener;
+   const isCurrent=()=>singleSyncSelected===selected&&singleSyncStore===store&&
+    projectBoard.value.trim()==='5107075373'&&msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+    msal.getAllAccounts()[0]?.tenantId===account.tenantId&&singleBridge.active&&singleBridge.ready()&&
+    singleBridge.syncSession()?.sha256===request.expectedApprovedSha256&&
+    !!opener&&window.opener===opener&&!opener.closed;
+   const report=await next.inspect(args);
+   if(report.generationSha256!==args.generationSha256||!isCurrent())throw Error('A V2 forras megvaltozott.');
+   approvedV1SyncOutput.textContent='V2 inditas a lenti kifejezett jovahagyasra var. Meg nem tortent iras.';
+   const accepted=await requestV2SessionConsent({host:approvedV1SyncOutput.parentElement,report,isCurrent});
+   if(!accepted||!isCurrent())throw Error('A V2 inditasa megszakitva. Nem tortent iras.');
+   return next.begin({...args,userConfirmed:true});
+  }
+  if(action==='open'){
+   const report=await next.open(args),last=report.revisions.at(-1)||report.baseline;
+   const selected={status:'ACTIVE',boardId:'5107075373',planVersion:2,
+    sessionId:report.claim.document.sessionId,revision:last.document.version,
+    versionLabel:'V2'+(last.document.version?'.'+last.document.version:''),draft:last.document,receipt:last.receipt};
+   installV2EditorQueue(next,selected);
+   approvedV1SyncOutput.textContent='V1 tervezesi munkamenet lezart. Aktiv '+selected.versionLabel+
+    ' DRAFT, '+report.taskCount+' feladat. Monday-iras: 0. Regi fajlokat nem toroltunk.';
+   showAccount(account);return report;
+  }
+  throw Error('Ismeretlen V2 muvelet.');
+ }
+ if(request.action.startsWith('full-')){
+  const full=singleSyncStore.fullSync,action=request.action.slice(5);
+  const args={...payload,createdBy,requestId:request.requestId};
+  if(action==='inspect'){
+   approvedV1SyncOutput.textContent='Teljes V1 naplolanc ellenorzese. Ez meg csak olvasas.';
+   return full.inspect(args);
+  }
+  if(action==='begin'){
+   const selected=singleSyncSelected,store=singleSyncStore,opener=window.opener;
+   const isCurrent=()=>singleSyncSelected===selected&&singleSyncStore===store&&
+    projectBoard.value.trim()==='5107075373'&&
+    msal.getAllAccounts()[0]?.homeAccountId===createdBy&&
+    msal.getAllAccounts()[0]?.tenantId===account.tenantId&&
+    singleBridge.active&&singleBridge.ready()&&
+    singleBridge.syncSession()?.sha256===request.expectedApprovedSha256&&
+    singleBridge.syncSession()?.sessionId===request.expectedSessionId&&
+    singleBridge.syncSession()?.revision===request.expectedRevision&&
+    !!opener&&window.opener===opener&&!opener.closed;
+   return beginV1FullSyncWithConsent({full,args,
+    host:approvedV1SyncOutput.parentElement,output:approvedV1SyncOutput,isCurrent});
+  }
+  if(action==='reconcile'){
+   approvedV1SyncOutput.textContent='Elfogadott megjegyzes-elteres egyeztetesi nyugtaja. A feladatot nem irjuk ujra.';
+   return full.reconcile(args);
+  }
+  if(action==='ahead'){
+   approvedV1SyncOutput.textContent='V1 szinkron: '+payload.step+'. feladat elonaploja es ellenorzese...';
+   return full.ahead(args);
+  }
+  if(action==='result'){
+   const result=await full.result(args);
+   approvedV1SyncOutput.textContent='V1 szinkron: '+result.document.step+'. feladat: '+result.document.status+
+    '. Eredmenynaplo visszaellenorizve.';return result;
+  }
+  if(action==='finish'){
+   const result=await full.finish(args);
+   approvedV1SyncOutput.textContent='TELJES V1 SZINKRON LEZARVA. '+result.document.verifiedTaskCount+
+    ' modosult feladat igazolva. Zaronyugta: '+result.receipt.name+'. V2 meg nem indult.';return result;
+  }
+  throw Error('Ismeretlen teljes V1 szinkronmuvelet.');
+ }
+
+ if(request.action==='inspect'){
+  approvedV1SyncOutput.textContent='V1 pilot: a mar letezo checkpoint es naplok teljes visszaolvasasa. Nincs iras.';
+  const report=await singleSyncStore.inspectV1Pilot({createdBy,editorId:payload.editorId});
+  approvedV1SyncOutput.textContent='V1 pilot ellenorzes: '+report.status+'\nFeladat: '+report.taskName+
+   '\nCheckpoint: sync-v1-prepared.json\nEz az ellenorzes nem ir a Monday-boardra.';
+  return report;
+ }
+ if(request.action==='ahead'){
+  // Show the independently read target, never an untrusted supplied task name.
+  const report=await singleSyncStore.inspectV1Pilot({createdBy,editorId:payload.editorId});
+  if(report.status!=='READY_FOR_PILOT'||report.taskId!==payload.taskId)
+   throw Error('V1 pilot: mar van naplo vagy eltero a celfeladat; iras tiltva.');
+  if(!window.confirm('VALODI MONDAY TEST-IRAS - pontosan egy feladat.\n'+
+   report.taskName+' (#'+report.taskId+')\n'+
+   'Eloszor tartos SharePoint elonaplo keszul. Ezutan a Monday egyszer megkiserli a feladat frissiteset.\n'+
+   'A tobbi feladat nem irhato. Bizonytalan eredmenynel nincs ujraprobalas.\nFolytatod?'))
+   throw Error('V1 pilot: a felhasznalo megszakitotta; nincs elonaplo vagy Monday-iras.');
+  approvedV1SyncOutput.textContent='V1 pilot: WRITE_AHEAD mentese es visszaellenorzese...';
+  const proof=await singleSyncStore.writeV1PilotAhead({...payload,createdBy,userConfirmed:true,
+   requestId:request.requestId,expectedApprovedSha256:request.expectedApprovedSha256,
+   expectedSessionId:request.expectedSessionId,expectedRevision:request.expectedRevision});
+  approvedV1SyncOutput.textContent='V1 pilot elonaplo igazolva: '+proof.receipt.name+
+   '\nA Monday az egyfeladatos iras eredmenyet kulon ellenorzi. Ne zard be ezt az ablakot.';
+  return proof;
+ }
+ if(request.action==='result'){
+  approvedV1SyncOutput.textContent='V1 pilot: a Monday visszaellenorzesi eredmenyenek tartos mentese...';
+  const proof=await singleSyncStore.saveV1PilotResult({createdBy,result:payload.result});
+  approvedV1SyncOutput.textContent='V1 pilot eredmenynaplo mentve es visszaellenorizve: '+proof.receipt.name+
+   '\nAllapot: '+proof.document.status+'\nIrasi kiserlet: '+proof.document.mutationAttempts+
+   '\nEz nem a teljes V1 terv szinkronja. Nincs automatikus kovetkezo feladat.';
+  return proof;
+ }
+ throw Error('Ismeretlen V1 pilot muvelet.');
+},onStatus:state=>{
+ if(state==='ready'){
+  showAccount(msal.getAllAccounts()[0]||null);
+  singleDraftOutput.textContent=testUi?'A Monday TEST-kapcsolat létrejött. Jelentkezz be és add át a projektkapcsolatot.':'Kapcsolat létrejött a Monday TEST-alkalmazással. Jelentkezz be, majd hozd létre vagy folytasd a DRAFT-ot.';
+ }
+ if(state==='blocked')singleDraftOutput.textContent=
+  'A DRAFT-mentés bizonytalan. A munkamenet csak független SharePoint-ellenőrzés után folytatható.';
+}});
+function singleStoreFor(account,boardId){
+ const originalId=account.homeAccountId,tenant=account.tenantId;
+ return createSingleDraftSessionStore({boardId,driveId,
+  getAccessToken:pickerToken,getMeAccessToken:pickerMeToken,
+  assertCurrent:()=>projectBoard.value.trim()===boardId&&
+   msal.getAllAccounts()[0]?.homeAccountId===originalId&&
+   msal.getAllAccounts()[0]?.tenantId===tenant});
+}
+function installV2EditorQueue(store,selected){
+ const version=selected.planVersion;
+ const queue=createImmutableDraftQueue({persist:async work=>{
+  const proof=await store.append(work);singleSession=proof;return proof;
+ },onState:state=>{
+  singleDraftOutput.textContent=state.blocked?'V'+version+' DRAFT mentes leallitva: '+state.blocked:
+   state.active?'V'+version+'.'+(state.verifiedRevision+1)+' feltoltes es visszaellenorzes...':
+   'V'+version+(state.verifiedRevision?'.'+state.verifiedRevision:'')+
+   ' DRAFT visszaellenorizve. Monday-iras: 0.';
+ }});
+ queue.open({sessionId:selected.sessionId,revision:selected.revision,sha256:selected.receipt.sha256});
+ singleStore=store;singleSession=selected;singleSessionQueue=queue;
+ singleDraftOutput.textContent='Aktiv '+selected.versionLabel+' DRAFT atadva a Monday szerkesztonek.';
+}
+async function openSingleSession(kind){
+ if(singleBusy||singleSession)return;
+ const boardId=projectBoard.value.trim(),account=msal.getAllAccounts()[0];
+ if(boardId!=='5107075373'||!account||!singleBridge.active||!singleBridge.ready()){
+  singleDraftOutput.textContent='A TEST projekt, Microsoft-bejelentkezés és a Monday TEST-ből indított kapcsolódás szükséges.';
+  return;
+ }
+ if(kind==='start'&&!window.confirm('A SharePoint Approved Plan V0-ból új, '+
+   'egyedüli aktív V1 munkamenetet hozunk létre. A Monday-board változatlan. Folytatod?'))return;
+ singleBusy=true;createSingleDraft.disabled=true;resumeSingleDraft.disabled=true;
+ singleDraftOutput.textContent=kind==='start'?
+  'V0 teljes SharePoint-ellenőrzése és egyetlen V1 munkamenet lefoglalása...':
+  'SharePoint V0, munkamenet-foglalás és minden DRAFT-revízió visszaellenőrzése...';
+ try{
+  const store=singleStoreFor(account,boardId);
+  const selected=kind==='start'?await store.start({createdBy:account.homeAccountId}):
+   await store.resume();
+  const queue=createImmutableDraftQueue({
+   persist:async work=>{
+    const proof=await store.append(work);
+    singleSession=proof;
+    return proof;
+   },
+   onState:state=>{
+    if(state.blocked)singleDraftOutput.textContent=
+     'SharePoint DRAFT mentés LEÁLLÍTVA: '+state.blocked;
+    else if(state.active)singleDraftOutput.textContent=
+     'DRAFT V1.'+(state.verifiedRevision+1)+' feltöltés és visszaellenőrzés...';
+    else if(state.verifiedRevision>0&&singleSession)
+     singleDraftOutput.textContent='DRAFT V1.'+state.verifiedRevision+
+      ' SharePointra mentve és SHA-256/eTag szerint visszaellenőrizve.';
+   }
+  });
+  queue.open({sessionId:selected.sessionId,revision:selected.revision,
+   sha256:selected.receipt.sha256});
+  singleStore=store;singleSession=selected;singleSessionQueue=queue;
+  const handed=singleBridge.active&&singleBridge.selected(selected);
+  singleDraftOutput.textContent='Aktív munkamenet: '+selected.versionLabel+
+   '\nProjekt: '+boardId+'\nSharePoint verzió: '+selected.receipt.name+
+   '\nSHA-256: '+selected.receipt.sha256+
+   '\nMonday-board módosítás: 0'+
+   (handed?'\nEllenőrzött DRAFT átadva a Monday TEST szerkesztőnek.':
+    '\nA kiválasztott munkamenet ellenőrzött. A Monday TEST-ből megnyitott '+
+    'Uploader-ablakban a DRAFT automatikusan átadható.');
+ }catch(error){
+  singleDraftOutput.textContent='A DRAFT-munkamenet nem indítható/folytatható: '+
+   (error?.message||error)+
+   '\nBizonytalan SharePoint írás esetén nincs automatikus újrapróbálás.';
+ }finally{
+  singleBusy=false;
+  const enabled=!!msal.getAllAccounts()[0]&&
+   projectBoard.value.trim()==='5107075373'&&!singleSession&&
+   singleBridge.active&&singleBridge.ready();
+  createSingleDraft.disabled=!enabled;resumeSingleDraft.disabled=!enabled;
+ }
+}
+async function inspectApprovedV1ForSync(){
+ if(syncInspectBusy||singleSession||singleSyncSelected||syncPrepareBlocked)return;
+ const boardId=projectBoard.value.trim(),account=msal.getAllAccounts()[0];
+ if(boardId!=='5107075373'||!account||!singleBridge.active||
+    !singleBridge.ready()){
+  approvedV1SyncOutput.textContent='Az Approved Plan V1 csak a kapcsolt Monday TEST-ből, bejelentkezett Microsoft-fiókkal vizsgálható.';
+  return;
+ }
+ syncInspectBusy=true;inspectApprovedV1Button.disabled=true;
+ approvedV1SyncOutput.textContent='Projektkapcsolat: a történeti SharePoint-bizonyítékok független ellenőrzése...';
+ try{
+  const store=singleStoreFor(account,boardId);
+  const selected=await store.inspectApprovedSync({createdBy:account.homeAccountId});
+  if(!singleBridge.approvedForSync(selected))
+   throw Error('A Monday TEST nem fogadta el az Approved V1 szinkronellenőrzési átadást.');
+  singleSyncStore=store;singleSyncSelected=selected;
+  approvedV1SyncOutput.textContent='Projektkapcsolat SharePoint-verifikációja sikeres. A Monday ellenőrzi az aktuális tervet.\n'+
+   'Fájl: '+selected.receipt.name+'\nSHA-256: '+selected.receipt.sha256+
+   '\nFeladatok: '+selected.approvedPlan.plan.working.length+
+   '\nMódosítás a Monday-boardon: 0.\n'+
+   'Az aktuális tervállapotot a Monday TEST projektpanelje mutatja.';
+ }catch(error){
+  approvedV1SyncOutput.textContent='Approved V1 szinkronellenőrzés sikertelen: '+
+   (error?.message||error)+
+   '\nNem történt Monday-írás. Ha valamelyik SharePoint-fájl sérült, ne folytasd.';
+ }finally{
+  syncInspectBusy=false;showAccount(msal.getAllAccounts()[0]||null);
+ }
+}
+inspectApprovedV1Button.addEventListener('click',()=>void inspectApprovedV1ForSync());
+createSingleDraft.addEventListener('click',()=>void openSingleSession('start'));
+resumeSingleDraft.addEventListener('click',()=>void openSingleSession('resume'));
+projectBoard.addEventListener('change',()=>{
+ if(singleSession&&projectBoard.value.trim()!==singleSession.boardId){
+  singleSessionQueue?.stop();
+  singleBridge.close();
+  singleDraftOutput.textContent='Projektváltás miatt a DRAFT-munkamenet lezárult az ablakban. Újratöltés és ellenőrzés szükséges.';
+ }
+ showAccount(msal.getAllAccounts()[0]||null);
+});
 pickerList.addEventListener('click',async()=>{
  pickerList.disabled=true;pickerEntries=[];pickerVerified=null;
  pickerVerify.disabled=true;pickerDownload.disabled=true;pickerSelect.disabled=true;
