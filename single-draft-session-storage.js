@@ -6,12 +6,9 @@ import {projectVerifiedCycleState} from './project-live-state-adapter.js';
 import {createPlanningActionGate} from './project-planning-action-gate.js';
 import {createPlanningInspectionTrace} from './planning-inspection-diagnostics.js';
 import {createVerifiedReadCache} from './verified-read-cache.js';
-import {createVersionedDraftStore} from './versioned-draft-storage.js';
+import {createVersionedStoreFactory} from './versioned-store-factory.js';
 import {createVersionedGraphFiles} from './versioned-graph-files.js';
 import {versionLayout,lifecycleFileName} from './version-workspace-layout.js';
-import {createVersionedApprovalSource} from './versioned-approval-source.js';
-import {createVersionedApprovalStore} from './versioned-approval-storage.js';
-import {createVersionedSyncStore} from './versioned-sync-storage.js';
 import {createV2SessionStore} from './v2-session-storage.js';
 import {createV1FullSyncStore} from './single-v1-full-sync-storage.js';
 import {createV1PilotStore} from './single-v1-pilot-storage.js';
@@ -552,79 +549,25 @@ export function createSingleDraftSessionStore({boardId,driveId,
     requireValid(current?.id===r.id&&current.eTag===r.eTag,'A V2 kapcsolt bizonyitek megvaltozott.');
    }));check();
   }});
- // Independent V3 namespace: no legacy Graph path is reused, V2 is read only.
- const v3Graph=createVersionedGraphFiles({boardId,version:3,driveId,getAccessToken,fetcher,
-  assertCurrent:()=>{check();return true;}});
- const nextVersion=createVersionedDraftStore({version:3,
-  inspectSource:args=>v2Flow.inspect(args),
-  read:v3Graph.read,list:v3Graph.list,create:v3Graph.create,
-  ensureFolders:v3Graph.ensureFolders,
-  readBoard:async args=>args.boardSnapshot,
-  now,randomUUID,check,
-  checkPinned:async(args,model)=>{
-   const report=await v2Flow.inspect(args);
-   requireValid(report?.final?.receipt?.sha256===model.source.completionSha256&&
-    report?.approved?.receipt?.sha256===model.source.approvedSha256,
-    'A V2 kiindulo bizonyitek megvaltozott.');
-   check();
-  }});
- // Independent, create-only V3 finalization: never uses the DRAFT-writer scan.
- // Full V2 predecessor and every V3 revision are revalidated per operation.
- const v3ApprovalSource=createVersionedApprovalSource({
-  inspectV2:args=>v2Flow.inspect(args),
-  read:v3Graph.read,list:v3Graph.list,now,check
- });
- const v3Approval=createVersionedApprovalStore({
-  inspectModel:args=>v3ApprovalSource.inspect(args),
-  read:v3Graph.read,list:v3Graph.list,create:v3Graph.create,
-  readBoard:async args=>args.boardSnapshot,
-  now,check,
-  checkPinned:async(args,model)=>{
-   check();
-   requireValid(args?.createdBy===model.createdBy&&args?.editorId===model.editorId,
-    'V3 jovahagyas fiokja megvaltozott.');
-   const report=await v2Flow.inspect(args);check();
-   requireValid(report?.approved?.receipt?.sha256===model.source.approvedSha256&&
-    report?.final?.receipt?.sha256===model.source.completionSha256,
-    'V3 elozo ciklus lezaro nyugtaja megvaltozott.');
-   const metaPaths=[
-    [model.names.layout.session,'version-info.json',model.manifestSha256],
-    [model.names.layout.session,'active-session-v3.json',model.claimSha256],
-    [model.names.layout.drafts,model.draftReceipt.name,model.sourceDraftSha256]
-   ];
-   for(const [folder,name,hash] of metaPaths){
-    const doc=await v3Graph.read(folder+'/'+name);check();
-    requireValid(doc?.sha256===hash&&doc.id&&doc.eTag,
-     'V3 forrasfajl SharePoint-ellenorzese megvaltozott.');
-   }
-  }
- });
- const v3Sync=createVersionedSyncStore({
-  inspectModel:args=>v3ApprovalSource.inspect(args),
-  read:v3Graph.read,list:v3Graph.list,create:v3Graph.create,
-  readBoard:async args=>args.boardSnapshot,
-  now,check,
-  checkPinned:async(args,model)=>{
-   check();
-   requireValid(args?.createdBy===model.createdBy&&args?.editorId===model.editorId,
-    'V3 szinkron: a szerkeszto vagy Microsoft-fiok megvaltozott.');
-   const report=await v2Flow.inspect(args);check();
-   requireValid(report?.approved?.receipt?.sha256===model.source.approvedSha256&&
-    report?.final?.receipt?.sha256===model.source.completionSha256,
-    'A V3 forras V2 vegnyugtaja megvaltozott.');
-   for(const [folder,name,hash] of [
-    [model.names.layout.session,'version-info.json',model.manifestSha256],
-    [model.names.layout.session,'active-session-v3.json',model.claimSha256],
-    [model.names.layout.drafts,model.draftReceipt.name,model.sourceDraftSha256]]){
-    const f=await v3Graph.read(folder+'/'+name);check();
-    requireValid(f?.sha256===hash&&f.id&&f.eTag,
-     'A V3 jo vahagyott DRAFT forrasa megvaltozott.');
-   }
-  }
- });
- // Read-only CURRENT PROJECT discovery. No version is allocated here.
+ // Connection-scoped factory. The browser command gate remains V3-only
+ // until the dynamic bridge and paired consent have passed cross-repo CI.
  const versionFolders=createVersionFolderCatalog({boardId,driveId,getAccessToken,fetcher,
   assertCurrent:()=>{check();return true;}});
+ const graphForVersion=version=>createVersionedGraphFiles({boardId,version,driveId,getAccessToken,fetcher,
+  assertCurrent:()=>{check();return true;}});
+ const versionedStores=createVersionedStoreFactory({graphForVersion,
+  inspectLegacyV2:args=>v2Flow.inspect(args),
+  inspectCatalog:()=>versionFolders.inspect({legacyVersions:[1,2]}),
+  check,now,randomUUID});
+ const v3=versionedStores.forVersion(3);
+ const nextVersion=v3.draft,v3Approval=v3.approval,v3Sync=v3.sync;
+ // Existing V3 discovery remains unchanged during the staged integration.
+ const v3Graph=graphForVersion(3);
+ async function inspectVersionedPlanningState(args={}){
+  check();requirePlanningInspectionIdentity(args);
+  const result=await versionedStores.inspectCurrent(args);check();
+  return structuredClone({...result,checkedAt:now().toISOString(),readOnly:true,mondayWrites:0});
+ }
  async function inspectPlanningState({createdBy,editorId,boardFingerprint,
   onPhase=()=>{}}={}){
   check();requirePlanningInspectionIdentity({createdBy,editorId,boardFingerprint});
@@ -683,5 +626,5 @@ export function createSingleDraftSessionStore({boardId,driveId,
   inspectApprovedSync,prepareApprovedSync,
   inspectV1Pilot:pilot.inspect,writeV1PilotAhead:pilot.writeAhead,
   saveV1PilotResult:pilot.saveResult,fullSync:full,nextSession,v2Flow,nextVersion,
-  v3Approval,v3Sync,inspectPlanningState,planningActions});
+  v3Approval,v3Sync,inspectPlanningState,inspectVersionedPlanningState,planningActions});
 }
